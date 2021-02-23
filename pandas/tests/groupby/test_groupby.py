@@ -8,6 +8,8 @@ import pytest
 from pandas.compat import IS64
 from pandas.errors import PerformanceWarning
 
+from pandas.core.dtypes.inference import is_number
+
 import pandas as pd
 from pandas import (
     Categorical,
@@ -1734,29 +1736,62 @@ def test_pivot_table_values_key_error():
     ],
 )
 @pytest.mark.parametrize("method", ["attr", "agg", "apply"])
-@pytest.mark.parametrize(
-    "op", ["idxmax", "idxmin", "mad", "min", "max", "sum", "prod", "skew"]
-)
-def test_empty_groupby(columns, keys, values, method, op):
+def test_empty_groupby(columns, keys, values, method, reduction_func, request):
     # GH8093 & GH26411
 
+    op = reduction_func
+
+    if (
+        op in ("mean", "median", "var", "quantile", "sem")
+        and not is_number(values[0])
+        and method != "apply"
+    ):
+        request.node.add_marker(pytest.mark.xfail(reason="only works on numeric"))
+    elif op in ("ngroup",):
+        pytest.skip("not a reduction")
+    elif op in ("std",) and not is_number(values[0]) and method != "apply":
+        request.node.add_marker(pytest.mark.xfail(reason="buggy behavior"))
+    elif op in ("corrwith",) and columns == "C":
+        request.node.add_marker(pytest.mark.xfail(reason="not a Series op"))
+
     override_dtype = None
-    if isinstance(values[0], bool) and op in ("prod", "sum") and method != "apply":
-        # sum/product of bools is an integer
-        override_dtype = "int64"
+    if method != "apply":
+        if isinstance(values[0], bool) and op in ("prod", "sum"):
+            # sum/product of bools is an integer
+            override_dtype = "int64"
+        if op in ("any", "all"):
+            override_dtype = "bool"
+        if op in ("count", "nunique", "size"):
+            override_dtype = "int64"
+        if op in ("quantile", "sem", "std"):
+            override_dtype = "float64"
 
     df = DataFrame([3 * values], columns=list("ABC"))
     df = df.iloc[:0]
 
+    args = ()
+    if op == "nth":
+        args = (0,)
+    elif op == "corrwith":
+        args = (df,)
+
+    if method == "apply" and len(args) > 0:
+        request.node.add_marker(
+            pytest.mark.xfail(reason="apply doesn't allow args passed")
+        )
+
     gb = df.groupby(keys)[columns]
     if method == "attr":
-        result = getattr(gb, op)()
+        result = getattr(gb, op)(*args)
     else:
-        result = getattr(gb, method)(op)
+        result = getattr(gb, method)(op, *args)
 
     expected = df.set_index(keys)[columns]
     if override_dtype is not None:
         expected = expected.astype(override_dtype)
+    if op == "size" and columns == ["C"] and method != "apply":
+        # size always returns a Series
+        expected = expected["C"].rename(None)
     if len(keys) == 1:
         expected.index.name = keys[0]
     tm.assert_equal(result, expected)
