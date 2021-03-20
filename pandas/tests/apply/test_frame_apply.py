@@ -1511,3 +1511,29 @@ def test_apply_np_reducer(float_frame, op, how):
         getattr(np, op)(float_frame, axis=0, **kwargs), index=float_frame.columns
     )
     tm.assert_series_equal(result, expected)
+
+
+@pytest.mark.parametrize("err_klass", [ValueError, TypeError])
+@pytest.mark.parametrize("use_groupby", [False, True])
+@pytest.mark.parametrize("arg_type", ["list", "dict"])
+def test_agg_partial_failure(err_klass, use_groupby, arg_type):
+    # GH 40539 - agg to allow partial failure for TypeError in lists and dicts
+    def op(x):
+        # Raises x is from any data in column A
+        if x.sum().sum() < 10:
+            raise err_klass("error message")
+        return x.sum()
+
+    df = DataFrame({"a": [1, 2], "b": [100, 200]})
+    obj = df.groupby(level=0) if use_groupby else df
+    func = [op] if arg_type == "list" else {"a": op, "b": op}
+    expected_func = [op] if arg_type == "list" else {"b": op}
+
+    if err_klass is ValueError:
+        with pytest.raises(ValueError, match="error message"):
+            obj.agg(func)
+    else:
+        result = obj.agg(func)
+        expected = obj[["b"]].agg(expected_func)
+
+        tm.assert_equal(result, expected)

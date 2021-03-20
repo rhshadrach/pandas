@@ -932,3 +932,37 @@ def test_apply_dictlike_transformer(string_series, ops):
         expected.name = string_series.name
         result = string_series.apply(ops)
         tm.assert_series_equal(result, expected)
+
+
+@pytest.mark.parametrize("err_klass", [ValueError, TypeError])
+@pytest.mark.parametrize("use_groupby", [False, True])
+@pytest.mark.parametrize("arg_type", ["list", "dict"])
+def test_agg_partial_failure(request, err_klass, use_groupby, arg_type):
+    # GH 40539 - agg to allow partial failure for TypeError in lists and dicts
+
+    if use_groupby and arg_type == "dict":
+        request.node.add_marker(pytest.mark.xfail(reason="Does not allow dicts"))
+    if use_groupby and arg_type == "list" and err_klass is TypeError:
+        request.node.add_marker(
+            pytest.mark.xfail(reason="Does not allow for partial failure with lists")
+        )
+
+    def failop(x):
+        raise err_klass("error message")
+
+    def passop(x):
+        return x.sum()
+
+    ser = Series([1, 2])
+    obj = ser.groupby(level=0) if use_groupby else ser
+    func = [failop, passop] if arg_type == "list" else {"a": failop, "b": passop}
+    expected_func = [passop] if arg_type == "list" else {"b": passop}
+
+    if err_klass is ValueError:
+        with pytest.raises(ValueError, match="error message"):
+            obj.agg(func)
+    else:
+        result = obj.agg(func)
+        expected = obj.agg(expected_func)
+
+        tm.assert_equal(result, expected)

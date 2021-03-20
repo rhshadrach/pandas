@@ -417,15 +417,28 @@ class Apply(metaclass=abc.ABCMeta):
         if selected_obj.ndim == 1:
             # key only used for output
             colg = obj._gotitem(obj._selection, ndim=1)
-            results = {key: colg.agg(how) for key, how in arg.items()}
+            results = {}
+            for key, how in arg.items():
+                try:
+                    result = colg.agg(how)
+                except TypeError:
+                    pass
+                else:
+                    results[key] = result
+
         else:
             # key used for column selection and output
-            results = {
-                key: obj._gotitem(key, ndim=1).agg(how) for key, how in arg.items()
-            }
+            results = {}
+            for key, how in arg.items():
+                try:
+                    result = obj._gotitem(key, ndim=1).agg(how)
+                except TypeError:
+                    pass
+                else:
+                    results[key] = result
 
         # set the final keys
-        keys = list(arg.keys())
+        keys = list(results.keys())
 
         # Avoid making two isinstance calls in all and any below
         is_ndframe = [isinstance(r, ABCNDFrame) for r in results.values()]
