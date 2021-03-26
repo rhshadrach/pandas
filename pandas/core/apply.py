@@ -101,6 +101,7 @@ def frame_apply(
 
 class Apply(metaclass=abc.ABCMeta):
     axis: int
+    klass: str
 
     def __init__(
         self,
@@ -174,7 +175,7 @@ class Apply(metaclass=abc.ABCMeta):
             return self.agg_dict_like()
         elif is_list_like(arg):
             # we require a list, but not a 'str'
-            return self.agg_list_like()
+            return self.apply_list_like()
 
         if callable(arg):
             f = obj._get_cython_func(arg)
@@ -313,7 +314,7 @@ class Apply(metaclass=abc.ABCMeta):
         except Exception:
             return func(obj, *args, **kwargs)
 
-    def agg_list_like(self) -> FrameOrSeriesUnion:
+    def apply_list_like(self) -> FrameOrSeriesUnion:
         """
         Compute aggregation in the case of a list-like argument.
 
@@ -339,8 +340,10 @@ class Apply(metaclass=abc.ABCMeta):
             for a in arg:
                 colg = obj._gotitem(selected_obj.name, ndim=1, subset=selected_obj)
                 try:
-                    new_res = colg.aggregate(a)
-
+                    if self.klass == "series" or self.klass == "frame":
+                        new_res = SeriesApply(colg, a).agg()
+                    else:
+                        new_res = colg.aggregate(a)
                 except TypeError:
                     pass
                 else:
@@ -355,7 +358,10 @@ class Apply(metaclass=abc.ABCMeta):
             for index, col in enumerate(selected_obj):
                 colg = obj._gotitem(col, ndim=1, subset=selected_obj.iloc[:, index])
                 try:
-                    new_res = colg.aggregate(arg)
+                    if self.klass == "series" or self.klass == "frame":
+                        new_res = SeriesApply(colg, arg).agg()
+                    else:
+                        new_res = colg.aggregate(arg)
                 except (TypeError, DataError):
                     pass
                 except ValueError as err:
@@ -412,11 +418,12 @@ class Apply(metaclass=abc.ABCMeta):
         if selected_obj.ndim == 1:
             # key only used for output
             colg = obj._gotitem(obj._selection, ndim=1)
-            results = {key: colg.agg(how) for key, how in arg.items()}
+            results = {key: SeriesApply(colg, how).agg() for key, how in arg.items()}
         else:
             # key used for column selection and output
             results = {
-                key: obj._gotitem(key, ndim=1).agg(how) for key, how in arg.items()
+                key: SeriesApply(obj._gotitem(key, ndim=1), how).agg()
+                for key, how in arg.items()
             }
 
         # set the final keys
@@ -499,7 +506,7 @@ class Apply(metaclass=abc.ABCMeta):
         # Note: dict-likes are list-like
         if not is_list_like(self.f):
             return None
-        return self.obj.aggregate(self.f, self.axis, *self.args, **self.kwargs)
+        return self.apply_list_like()
 
     def normalize_dictlike_arg(
         self, how: str, obj: FrameOrSeriesUnion, func: AggFuncTypeDict
@@ -549,6 +556,7 @@ class Apply(metaclass=abc.ABCMeta):
 
 class FrameApply(Apply):
     obj: DataFrame
+    klass = "frame"
 
     # ---------------------------------------------------------------
     # Abstract Methods
@@ -937,15 +945,18 @@ class FrameColumnApply(FrameApply):
 class SeriesApply(Apply):
     obj: Series
     axis = 0
+    klass = "series"
 
     def __init__(
         self,
         obj: Series,
         func: AggFuncType,
-        convert_dtype: bool,
-        args,
-        kwargs,
+        convert_dtype: bool = True,
+        args: Tuple[Any, ...] = (),
+        kwargs: Optional[Dict[str, Any]] = None,
     ):
+        if kwargs is None:
+            kwargs = {}
         self.convert_dtype = convert_dtype
 
         super().__init__(
@@ -1042,6 +1053,7 @@ class SeriesApply(Apply):
 
 class GroupByApply(Apply):
     obj: Union[SeriesGroupBy, DataFrameGroupBy]
+    klass = "groupby"
 
     def __init__(
         self,
@@ -1071,6 +1083,7 @@ class GroupByApply(Apply):
 class ResamplerWindowApply(Apply):
     axis = 0
     obj: Union[Resampler, BaseWindow]
+    klass = "resampler_window"
 
     def __init__(
         self,

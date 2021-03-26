@@ -1012,7 +1012,9 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
 
     @doc(_agg_template, examples=_agg_examples_doc, klass="DataFrame")
     def aggregate(self, func=None, *args, engine=None, engine_kwargs=None, **kwargs):
+        self._aggregate(func, *args, engine, engine_kwargs, **kwargs)
 
+    def _aggregate(self, func=None, *args, engine=None, engine_kwargs=None, **kwargs):
         if maybe_use_numba(engine):
             with group_selection_context(self):
                 data = self._selected_obj

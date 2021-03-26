@@ -1021,6 +1021,13 @@ def test_agg_transform(axis, float_frame):
             expected.columns = MultiIndex.from_product([float_frame.columns, ["sqrt"]])
         else:
             expected.index = MultiIndex.from_product([float_frame.index, ["sqrt"]])
+
+        print()
+        print(result)
+        print()
+        print(expected)
+        print()
+
         tm.assert_frame_equal(result, expected)
 
         # multiple items in list
