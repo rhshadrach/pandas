@@ -260,17 +260,11 @@ def test_cython_with_timestamp_and_nat(op, data):
         "mean",
         "median",
         "ohlc",
-        "cumprod",
-        "cumsum",
-        "shift",
         "any",
         "all",
         "quantile",
         "first",
         "last",
-        "rank",
-        "cummin",
-        "cummax",
     ],
 )
 def test_read_only_buffer_source_agg(agg):
@@ -285,6 +279,36 @@ def test_read_only_buffer_source_agg(agg):
 
     result = df.groupby(["species"]).agg({"sepal_length": agg})
     expected = df.copy().groupby(["species"]).agg({"sepal_length": agg})
+
+    tm.assert_equal(result, expected)
+
+
+@pytest.mark.parametrize(
+    "transform",
+    [
+        "cumprod",
+        "cumsum",
+        "shift",
+        "rank",
+        "cummin",
+        "cummax",
+    ],
+)
+def test_read_only_buffer_source_transform(transform):
+    # https://github.com/pandas-dev/pandas/issues/36014
+    df = DataFrame(
+        {
+            "sepal_length": [5.1, 4.9, 4.7, 4.6, 5.0],
+            "species": ["setosa", "setosa", "setosa", "setosa", "setosa"],
+        }
+    )
+    df._mgr.arrays[0].flags.writeable = False
+
+    msg = "aggregate was used with a function that did not reduce"
+    with tm.assert_produces_warning(FutureWarning, match=msg):
+        result = df.groupby(["species"]).agg({"sepal_length": transform})
+    with tm.assert_produces_warning(FutureWarning, match=msg):
+        expected = df.copy().groupby(["species"]).agg({"sepal_length": transform})
 
     tm.assert_equal(result, expected)
 

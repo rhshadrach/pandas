@@ -8268,6 +8268,15 @@ NaN 12.3   33.0
 
         op = frame_apply(self, func=func, axis=axis, args=args, kwargs=kwargs)
         result = op.agg()
+        if op.didnt_reduce:
+            warnings.warn(
+                "aggregate was used with a function that did not reduce. The "
+                "result will be a Series with complex (e.g. Series or DataFrame) "
+                "values instead in a future version of pandas. You may want to "
+                "use apply or transform instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
 
         if relabeling:
             # This is to keep the order to columns occurrence unchanged, and also

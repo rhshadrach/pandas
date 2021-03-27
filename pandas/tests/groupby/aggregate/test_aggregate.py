@@ -426,7 +426,7 @@ def test_groupby_agg_coercing_bools():
         lambda x: x.transform("sum"),
         lambda x: x.transform("cumsum"),
         lambda x: x.agg("sum"),
-        lambda x: x.agg("cumsum"),
+        # lambda x: x.agg("cumsum"),
     ],
 )
 def test_bool_agg_dtype(op):
@@ -1159,9 +1159,13 @@ def test_nonagg_agg():
     df = DataFrame({"a": [1, 1, 2, 2], "b": [1, 2, 2, 1]})
     g = df.groupby("a")
 
-    result = g.agg(["cumsum"])
+    msg = "aggregate was used with a function that did not reduce"
+    with tm.assert_produces_warning(FutureWarning, match=msg):
+        result = g.agg(["cumsum"])
     result.columns = result.columns.droplevel(-1)
-    expected = g.agg("cumsum")
+    msg = "aggregate was used with a function that did not reduce"
+    with tm.assert_produces_warning(FutureWarning, match=msg):
+        expected = g.agg("cumsum")
 
     tm.assert_frame_equal(result, expected)
 

@@ -10353,7 +10353,7 @@ class NDFrame(PandasObject, SelectionMixin, indexing.IndexingMixin):
         axis = self._get_axis_number(axis)
         method = getattr(type(self), name)
         applyf = lambda x: method(x, axis=axis, skipna=skipna, **kwargs)
-        return grouped.aggregate(applyf)
+        return grouped._agg(applyf)
 
     @final
     def _logical_func(

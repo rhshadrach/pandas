@@ -337,11 +337,15 @@ def test_agg_apply_evaluate_lambdas_the_same(string_series):
     # test that we are evaluating row-by-row first
     # before vectorized evaluation
     result = string_series.apply(lambda x: str(x))
-    expected = string_series.agg(lambda x: str(x))
+    msg = "Series.aggregate was used with a function that operated on each row"
+    with tm.assert_produces_warning(FutureWarning, match=msg):
+        expected = string_series.agg(lambda x: str(x))
     tm.assert_series_equal(result, expected)
 
     result = string_series.apply(str)
-    expected = string_series.agg(str)
+    msg = "Series.aggregate was used with a function that operated on each row"
+    with tm.assert_produces_warning(FutureWarning, match=msg):
+        expected = string_series.agg(str)
     tm.assert_series_equal(result, expected)
 
 
@@ -352,7 +356,9 @@ def test_with_nested_series(datetime_series):
     expected = DataFrame({"x": datetime_series, "x^2": datetime_series ** 2})
     tm.assert_frame_equal(result, expected)
 
-    result = datetime_series.agg(lambda x: Series([x, x ** 2], index=["x", "x^2"]))
+    msg = "Series.aggregate was used with a function that operated on each row"
+    with tm.assert_produces_warning(FutureWarning, match=msg):
+        result = datetime_series.agg(lambda x: Series([x, x ** 2], index=["x", "x^2"]))
     tm.assert_frame_equal(result, expected)
 
 
@@ -484,7 +490,9 @@ def test_agg_cython_table_transform(series, func, expected):
     # GH21224
     # test transforming functions in
     # pandas.core.base.SelectionMixin._cython_table (cumprod, cumsum)
-    result = series.agg(func)
+    msg = "Series.aggregate was used with a function that operated on each row"
+    with tm.assert_produces_warning(FutureWarning, match=msg):
+        result = series.agg(func)
     tm.assert_series_equal(result, expected)
 
 

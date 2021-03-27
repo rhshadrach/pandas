@@ -1371,7 +1371,9 @@ def test_agg_cython_table_transform(df, func, expected, axis):
         # operating blockwise doesn't let us preserve dtypes
         expected = expected.astype("float64")
 
-    result = df.agg(func, axis=axis)
+    msg = "aggregate was used with a function that did not reduce"
+    with tm.assert_produces_warning(FutureWarning, match=msg):
+        result = df.agg(func, axis=axis)
     tm.assert_frame_equal(result, expected)
 
 

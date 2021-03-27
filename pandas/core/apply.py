@@ -78,10 +78,11 @@ def frame_apply(
     axis: Axis = 0,
     raw: bool = False,
     result_type: Optional[str] = None,
-    args=None,
-    kwargs=None,
+    args: Tuple[Any, ...] = (),
+    kwargs: Optional[Dict[Any, ...]] = None,
 ) -> FrameApply:
     """ construct and return a row or column based frame apply object """
+    kwargs = kwargs or {}
     axis = obj._get_axis_number(axis)
     klass: Type[FrameApply]
     if axis == 0:
@@ -107,15 +108,17 @@ class Apply(metaclass=abc.ABCMeta):
         self,
         obj: AggObjType,
         func,
-        raw: bool,
-        result_type: Optional[str],
-        args,
-        kwargs,
+        raw: bool = False,
+        result_type: Optional[str] = None,
+        args: Tuple[Any, ...] = (),
+        kwargs: Optional[Dict[str, Any]] = None,
     ):
         self.obj = obj
         self.raw = raw
         self.args = args or ()
         self.kwargs = kwargs or {}
+        # For tracking deprecation in GH ???
+        self.didnt_reduce = False
 
         if result_type not in [None, "reduce", "broadcast", "expand"]:
             raise ValueError(
@@ -175,12 +178,15 @@ class Apply(metaclass=abc.ABCMeta):
             return self.agg_dict_like()
         elif is_list_like(arg):
             # we require a list, but not a 'str'
-            return self.apply_list_like()
+            return self.agg_list_like()
 
         if callable(arg):
             f = obj._get_cython_func(arg)
             if f and not args and not kwargs:
-                return getattr(obj, f)()
+                result = getattr(obj, f)()
+                if isinstance(result, ABCNDFrame) and result.ndim == obj.ndim:
+                    self.didnt_reduce = True
+                return result
 
         # caller can react
         return None
@@ -319,7 +325,7 @@ class Apply(metaclass=abc.ABCMeta):
         except Exception:
             return func(obj, *args, **kwargs)
 
-    def apply_list_like(self) -> FrameOrSeriesUnion:
+    def agg_list_like(self) -> FrameOrSeriesUnion:
         """
         Compute aggregation in the case of a list-like argument.
 
@@ -345,13 +351,20 @@ class Apply(metaclass=abc.ABCMeta):
             for a in arg:
                 colg = obj._gotitem(selected_obj.name, ndim=1, subset=selected_obj)
                 try:
-                    if self.klass == "series" or self.klass == "frame":
+                    if self.klass == "frame":
                         new_res = SeriesApply(colg, a).agg()
-                    else:
+                    elif self.klass == "groupby":
+                        new_res = colg._aggregate(a)
+                    elif self.klass == "resampler_window":
                         new_res = colg.aggregate(a)
+                    else:
+                        new_res = type(self)(colg, a).agg()
+
                 except TypeError:
                     pass
                 else:
+                    if is_list_like(new_res):
+                        self.didnt_reduce = True
                     results.append(new_res)
 
                     # make sure we find a good name
@@ -363,8 +376,10 @@ class Apply(metaclass=abc.ABCMeta):
             for index, col in enumerate(selected_obj):
                 colg = obj._gotitem(col, ndim=1, subset=selected_obj.iloc[:, index])
                 try:
-                    if self.klass == "series" or self.klass == "frame":
+                    if self.klass == "frame" or self.klass == "series":
                         new_res = SeriesApply(colg, arg).agg()
+                    elif self.klass == "groupby":
+                        new_res = colg._agg(arg)
                     else:
                         new_res = colg.aggregate(arg)
                 except (TypeError, DataError):
@@ -419,17 +434,32 @@ class Apply(metaclass=abc.ABCMeta):
         selected_obj = obj._selected_obj
 
         arg = self.normalize_dictlike_arg("agg", selected_obj, arg)
-
         if selected_obj.ndim == 1:
             # key only used for output
             colg = obj._gotitem(obj._selection, ndim=1)
-            results = {key: SeriesApply(colg, how).agg() for key, how in arg.items()}
+            if self.klass == "frame" or self.klass == "series":
+                results = {
+                    key: SeriesApply(colg, how).agg() for key, how in arg.items()
+                }
+            elif self.klass == "groupby":
+                results = {key: colg._agg(how) for key, how in arg.items()}
+            else:
+                results = {key: colg.agg(how) for key, how in arg.items()}
         else:
             # key used for column selection and output
-            results = {
-                key: SeriesApply(obj._gotitem(key, ndim=1), how).agg()
-                for key, how in arg.items()
-            }
+            if self.klass == "frame" or self.klass == "series":
+                results = {
+                    key: SeriesApply(obj._gotitem(key, ndim=1), how).agg()
+                    for key, how in arg.items()
+                }
+            elif self.klass == "groupby":
+                results = {
+                    key: obj._gotitem(key, ndim=1)._agg(how) for key, how in arg.items()
+                }
+            else:
+                results = {
+                    key: obj._gotitem(key, ndim=1).agg(how) for key, how in arg.items()
+                }
 
         # set the final keys
         keys = list(arg.keys())
@@ -444,6 +474,8 @@ class Apply(metaclass=abc.ABCMeta):
             keys_to_use = keys_to_use if keys_to_use != [] else keys
             axis = 0 if isinstance(obj, ABCSeries) else 1
             result = concat({k: results[k] for k in keys_to_use}, axis=axis)
+            if selected_obj.ndim == 1:
+                self.didnt_reduce = True
         elif any(is_ndframe):
             # There is a mix of NDFrames and scalars
             raise ValueError(
@@ -497,7 +529,14 @@ class Apply(metaclass=abc.ABCMeta):
                 self.kwargs["axis"] = self.axis
             elif self.axis != 0:
                 raise ValueError(f"Operation {f} does not support axis=1")
-        return obj._try_aggregate_string_function(f, *self.args, **self.kwargs)
+        result = obj._try_aggregate_string_function(f, *self.args, **self.kwargs)
+        if (
+            self.klass != "groupby"
+            and isinstance(result, ABCNDFrame)
+            and result.ndim == obj.ndim
+        ):
+            self.didnt_reduce = True
+        return result
 
     def maybe_apply_multiple(self) -> Optional[FrameOrSeriesUnion]:
         """
@@ -511,7 +550,17 @@ class Apply(metaclass=abc.ABCMeta):
         # Note: dict-likes are list-like
         if not is_list_like(self.f):
             return None
-        return self.apply_list_like()
+        if self.klass == "frame":
+            return frame_apply(
+                self.obj, self.f, self.axis, args=self.args, kwargs=self.kwargs
+            ).agg()
+        elif self.klass == "series":
+            return SeriesApply(
+                self.obj, self.f, args=self.args, kwargs=self.kwargs
+            ).agg()
+        elif self.klass == "groupby":
+            return self.obj._aggregate(self.f, self.axis, *self.args, **self.kwargs)
+        return self.obj.aggregate(self.f, self.axis, *self.args, **self.kwargs)
 
     def normalize_dictlike_arg(
         self, how: str, obj: FrameOrSeriesUnion, func: AggFuncTypeDict
@@ -647,14 +696,16 @@ class FrameApply(Apply):
         axis = self.axis
 
         if axis == 1:
-            result = FrameRowApply(
+            op = FrameRowApply(
                 obj.T,
                 self.orig_f,
                 self.raw,
                 self.result_type,
                 self.args,
                 self.kwargs,
-            ).agg()
+            )
+            result = op.agg()
+            self.didnt_reduce = op.didnt_reduce
             result = result.T if result is not None else result
         else:
             result = super().agg()
@@ -949,12 +1000,11 @@ class SeriesApply(Apply):
         self,
         obj: Series,
         func: AggFuncType,
-        convert_dtype: bool = True,
+        convert_dtype: bool = False,
         args: Tuple[Any, ...] = (),
         kwargs: Optional[Dict[str, Any]] = None,
     ):
-        if kwargs is None:
-            kwargs = {}
+        kwargs = kwargs or {}
         self.convert_dtype = convert_dtype
 
         super().__init__(
@@ -1008,6 +1058,7 @@ class SeriesApply(Apply):
             # operation is actually defined on the Series, e.g. str
             try:
                 result = self.obj.apply(f, *args, **kwargs)
+                self.didnt_reduce = True
             except (ValueError, AttributeError, TypeError):
                 result = f(self.obj, *args, **kwargs)
 
@@ -1057,9 +1108,10 @@ class GroupByApply(Apply):
         self,
         obj: Union[SeriesGroupBy, DataFrameGroupBy],
         func: AggFuncType,
-        args,
-        kwargs,
+        args: Tuple[Any, ...] = (),
+        kwargs: Optional[Dict[str, Any]] = None,
     ):
+        kwargs = kwargs or {}
         kwargs = kwargs.copy()
         self.axis = obj.obj._get_axis_number(kwargs.get("axis", 0))
         super().__init__(
@@ -1087,9 +1139,10 @@ class ResamplerWindowApply(Apply):
         self,
         obj: Union[Resampler, BaseWindow],
         func: AggFuncType,
-        args,
-        kwargs,
+        args: Tuple[Any, ...] = (),
+        kwargs: Optional[Dict[str, Any]] = None,
     ):
+        kwargs = kwargs or {}
         super().__init__(
             obj,
             func,

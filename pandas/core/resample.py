@@ -1115,7 +1115,7 @@ class DatetimeIndexResampler(Resampler):
 
         # we are downsampling
         # we want to call the actual grouper method here
-        result = obj.groupby(self.grouper, axis=self.axis).aggregate(how, **kwargs)
+        result = obj.groupby(self.grouper, axis=self.axis)._agg(how, **kwargs)
 
         result = self._apply_loffset(result)
         return self._wrap_result(result)

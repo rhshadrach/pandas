@@ -4056,6 +4056,15 @@ Keep all original rows and also all original values
 
         op = SeriesApply(self, func, convert_dtype=False, args=args, kwargs=kwargs)
         result = op.agg()
+        if op.didnt_reduce:
+            warnings.warn(
+                "Series.aggregate was used with a function that operated on each "
+                "row of the Series. When used with aggregate, the function will only "
+                "operate on the entire Series in a future version of pandas. You may "
+                "want to use apply or transform instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
         return result
 
     agg = aggregate

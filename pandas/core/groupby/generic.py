@@ -247,6 +247,37 @@ class SeriesGroupBy(GroupBy[Series]):
 
     @doc(_agg_template, examples=_agg_examples_doc, klass="Series")
     def aggregate(self, func=None, *args, engine=None, engine_kwargs=None, **kwargs):
+        result = self._agg(
+            func, *args, engine=engine, engine_kwargs=engine_kwargs, **kwargs
+        )
+        from pandas import CategoricalIndex
+
+        if result.empty:
+            expected_len = 0
+        elif self.observed or not any(
+            isinstance(ping.grouper, (Categorical, CategoricalIndex))
+            for ping in self.grouper.groupings
+        ):
+            expected_len = len(self.grouper.result_index)
+        else:
+            for ping in self.grouper.groupings:
+                print(ping.group_index)
+            expected_len = np.prod(
+                [len(ping.group_index) for ping in self.grouper.groupings]
+            )
+        if len(result._get_axis(self.axis)) != expected_len:
+            # result.index will not equal result_index when as_index=False
+            warnings.warn(
+                "aggregate was used with a function that did not reduce. The result "
+                "will be a Series or DataFrame with complex (e.g. Series or DataFrame) "
+                "values instead in a future version of pandas. You may want to use "
+                "apply or transform instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+        return result
+
+    def _agg(self, func=None, *args, engine=None, engine_kwargs=None, **kwargs):
 
         if maybe_use_numba(engine):
             with group_selection_context(self):
@@ -337,7 +368,7 @@ class SeriesGroupBy(GroupBy[Series]):
                 obj = copy.copy(obj)
                 obj._reset_cache()
                 obj._selection = name
-            results[base.OutputKey(label=name, position=idx)] = obj.aggregate(func)
+            results[base.OutputKey(label=name, position=idx)] = obj._agg(func)
 
         if any(isinstance(x, DataFrame) for x in results.values()):
             # let higher level handle
@@ -1010,9 +1041,36 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
 
     @doc(_agg_template, examples=_agg_examples_doc, klass="DataFrame")
     def aggregate(self, func=None, *args, engine=None, engine_kwargs=None, **kwargs):
-        self._aggregate(func, *args, engine, engine_kwargs, **kwargs)
+        result = self._agg(
+            func, *args, engine=engine, engine_kwargs=engine_kwargs, **kwargs
+        )
+        from pandas import CategoricalIndex
 
-    def _aggregate(self, func=None, *args, engine=None, engine_kwargs=None, **kwargs):
+        if result.shape[0] == 0:
+            expected_len = 0
+        elif self.observed or not any(
+            isinstance(ping.grouper, (Categorical, CategoricalIndex))
+            for ping in self.grouper.groupings
+        ):
+            expected_len = len(self.grouper.result_index)
+        else:
+            expected_len = np.prod(
+                [len(ping.group_index) for ping in self.grouper.groupings]
+            )
+        if len(result._get_axis(self.axis)) != expected_len:
+            # GH 33086 - agg can work on an empty list
+            # result.index will not equal result_index when as_index=False
+            warnings.warn(
+                "aggregate was used with a function that did not reduce. The "
+                "result will be a Series or DataFrame with complex (e.g. Series "
+                "or DataFrame) values instead in a future version of pandas. You "
+                "may want to use apply or transform instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+        return result
+
+    def _agg(self, func=None, *args, engine=None, engine_kwargs=None, **kwargs):
         if maybe_use_numba(engine):
             with group_selection_context(self):
                 data = self._selected_obj

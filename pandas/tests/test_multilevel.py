@@ -214,9 +214,12 @@ class TestMultiLevel:
 
         def aggf(x):
             pieces.append(x)
-            return getattr(x, op)(skipna=skipna, axis=axis)
+            result = getattr(x, op)(skipna=skipna, axis=axis)
+            print(result)
+            return result
 
-        leftside = grouped.agg(aggf)
+        with tm.assert_produces_warning(None):
+            leftside = grouped.agg(aggf)
         rightside = getattr(frame, op)(level=level, axis=axis, skipna=skipna)
         if sort:
             rightside = rightside.sort_index(level=level, axis=axis)
