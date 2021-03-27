@@ -171,10 +171,10 @@ class Apply(metaclass=abc.ABCMeta):
             return result
 
         if is_dict_like(arg):
-            return self.agg_dict_like()
+            return self.agg_dict_like("agg")
         elif is_list_like(arg):
             # we require a list, but not a 'str'
-            return self.agg_list_like()
+            return self.agg_list_like("agg")
 
         if callable(arg):
             f = obj._get_cython_func(arg)
@@ -318,7 +318,7 @@ class Apply(metaclass=abc.ABCMeta):
         except Exception:
             return func(obj, *args, **kwargs)
 
-    def agg_list_like(self) -> FrameOrSeriesUnion:
+    def agg_list_like(self, how: str) -> FrameOrSeriesUnion:
         """
         Compute aggregation in the case of a list-like argument.
 
@@ -344,7 +344,7 @@ class Apply(metaclass=abc.ABCMeta):
             for a in arg:
                 colg = obj._gotitem(selected_obj.name, ndim=1, subset=selected_obj)
                 try:
-                    new_res = colg.aggregate(a)
+                    new_res = getattr(colg, how)(a)
 
                 except TypeError:
                     pass
@@ -360,7 +360,7 @@ class Apply(metaclass=abc.ABCMeta):
             for index, col in enumerate(selected_obj):
                 colg = obj._gotitem(col, ndim=1, subset=selected_obj.iloc[:, index])
                 try:
-                    new_res = colg.aggregate(arg)
+                    new_res = getattr(colg, how)(arg)
                 except (TypeError, DataError):
                     pass
                 except ValueError as err:
@@ -397,7 +397,53 @@ class Apply(metaclass=abc.ABCMeta):
                 ) from err
             return result
 
-    def agg_dict_like(self) -> FrameOrSeriesUnion:
+    def apply_list_like(self, how: str) -> FrameOrSeriesUnion:
+        """
+        Compute aggregation in the case of a list-like argument.
+
+        Returns
+        -------
+        Result of aggregation.
+        """
+        from pandas.core.reshape.concat import concat
+
+        obj = self.obj
+        arg = cast(List[AggFuncTypeBase], self.f)
+
+        results = []
+        keys = []
+
+        for a in arg:
+            try:
+                new_res = getattr(obj, how)(a)
+            except TypeError:
+                pass
+            else:
+                results.append(new_res)
+                name = com.get_callable_name(a) or a
+                keys.append(name)
+
+        # if we are empty
+        if not len(results):
+            raise ValueError("no results")
+
+        try:
+            return concat(results, keys=keys, axis=1, sort=False).T
+        except TypeError as err:
+
+            # we are concatting non-NDFrame objects,
+            # e.g. a list of scalars
+
+            from pandas import Series
+
+            result = Series(results, index=keys, name=obj.name)
+            if is_nested_object(result):
+                raise ValueError(
+                    "cannot combine transform and aggregation operations"
+                ) from err
+            return result
+
+    def agg_dict_like(self, how: str) -> FrameOrSeriesUnion:
         """
         Compute aggregation in the case of a dict-like argument.
 
@@ -417,11 +463,11 @@ class Apply(metaclass=abc.ABCMeta):
         if selected_obj.ndim == 1:
             # key only used for output
             colg = obj._gotitem(obj._selection, ndim=1)
-            results = {key: colg.agg(how) for key, how in arg.items()}
+            results = {key: getattr(colg, how)(a) for key, a in arg.items()}
         else:
             # key used for column selection and output
             results = {
-                key: obj._gotitem(key, ndim=1).agg(how) for key, how in arg.items()
+                key: getattr(obj._gotitem(key, ndim=1), how)(a) for key, a in arg.items()
             }
 
         # set the final keys
@@ -501,10 +547,14 @@ class Apply(metaclass=abc.ABCMeta):
         result: Series, DataFrame, or None
             Result when self.f is a list-like or dict-like, None otherwise.
         """
+        f = self.f
         # Note: dict-likes are list-like
         if not is_list_like(self.f):
             return None
-        return self.obj.aggregate(self.f, self.axis, *self.args, **self.kwargs)
+        if is_dict_like(f):
+            return self.agg_dict_like("apply")
+        else:
+            return self.apply_list_like("apply")
 
     def normalize_dictlike_arg(
         self, how: str, obj: FrameOrSeriesUnion, func: AggFuncTypeDict

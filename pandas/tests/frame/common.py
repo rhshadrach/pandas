@@ -48,9 +48,11 @@ def zip_frames(frames: List[DataFrame], axis: int = 1) -> DataFrame:
     -------
     new_frame : DataFrame
     """
+    print('zipping... axis=', axis)
     if axis == 1:
         columns = frames[0].columns
         zipped = [f.loc[:, c] for c in columns for f in frames]
+        print('here!')
         return concat(zipped, axis=1)
     else:
         index = frames[0].index
