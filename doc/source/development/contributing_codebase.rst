@@ -827,13 +827,6 @@ regarding :ref:`documentation <contributing_documentation>`.
 Further, to let users know when this feature was added, the ``versionadded``
 directive is used. The sphinx syntax for that is:
 
-If your code is a bugfix, add your entry to the relevant bugfix section. Avoid
-adding to the ``Other`` section; only in rare cases should entries go here.
-Being as concise as possible, the description of the bug should include how the
-user may encounter it and an indication of the bug itself, e.g.
-"produces incorrect results" or "incorrectly raises". It may be necessary to also
-indicate the new behavior.
-
 .. code-block:: rst
 
   .. versionadded:: 1.1.0
@@ -842,3 +835,10 @@ This will put the text *New in version 1.1.0* wherever you put the sphinx
 directive. This should also be put in the docstring when adding a new function
 or method (`example <https://github.com/pandas-dev/pandas/blob/v0.20.2/pandas/core/frame.py#L1495>`__)
 or a new keyword argument (`example <https://github.com/pandas-dev/pandas/blob/v0.20.2/pandas/core/generic.py#L568>`__).
+
+If your code is a bugfix, add your entry to the relevant bugfix section. Avoid
+adding to the ``Other`` section; only in rare cases should entries go here.
+Being as concise as possible, the description of the bug should include how the
+user may encounter it and an indication of the bug itself, e.g.
+"produces incorrect results" or "incorrectly raises". It may be necessary to also
+indicate the new behavior.
