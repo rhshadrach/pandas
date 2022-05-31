@@ -77,10 +77,7 @@ from pandas.core.dtypes.generic import (
     ABCSeries,
     ABCTimedeltaArray,
 )
-from pandas.core.dtypes.missing import (
-    isna,
-    na_value_for_dtype,
-)
+from pandas.core.dtypes.missing import isna
 
 from pandas.core.array_algos.take import take_nd
 from pandas.core.construction import (
@@ -509,7 +506,7 @@ def isin(comps: AnyArrayLike, values: AnyArrayLike) -> npt.NDArray[np.bool_]:
 
 def factorize_array(
     values: np.ndarray,
-    na_sentinel: int = -1,
+    na_sentinel: int | None = -1,
     size_hint: int | None = None,
     na_value: object = None,
     mask: npt.NDArray[np.bool_] | None = None,
@@ -540,6 +537,10 @@ def factorize_array(
     codes : ndarray[np.intp]
     uniques : ndarray
     """
+    ignore_na = na_sentinel is not None
+    if not ignore_na:
+        na_sentinel = -1
+
     original = values
     if values.dtype.kind in ["m", "M"]:
         # _get_hashtable_algo will cast dt64/td64 to i8 via _ensure_data, so we
@@ -552,7 +553,11 @@ def factorize_array(
 
     table = hash_klass(size_hint or len(values))
     uniques, codes = table.factorize(
-        values, na_sentinel=na_sentinel, na_value=na_value, mask=mask
+        values,
+        na_sentinel=na_sentinel,
+        na_value=na_value,
+        mask=mask,
+        ignore_na=ignore_na,
     )
 
     # re-cast e.g. i8->dt64/td64, uint8->bool
@@ -735,13 +740,6 @@ def factorize(
     if not isinstance(values, ABCMultiIndex):
         values = extract_array(values, extract_numpy=True)
 
-    # GH35667, if na_sentinel=None, we will not dropna NaNs from the uniques
-    # of values, assign na_sentinel=-1 to replace code value for NaN.
-    dropna = True
-    if na_sentinel is None:
-        na_sentinel = -1
-        dropna = False
-
     if (
         isinstance(values, (ABCDatetimeArray, ABCTimedeltaArray))
         and values.freq is not None
@@ -753,38 +751,32 @@ def factorize(
 
     elif not isinstance(values.dtype, np.dtype):
         if (
-            na_sentinel == -1
-            and "use_na_sentinel" in inspect.signature(values.factorize).parameters
-        ):
+            na_sentinel == -1 or na_sentinel is None
+        ) and "use_na_sentinel" in inspect.signature(values.factorize).parameters:
             # Avoid using catch_warnings when possible
             # GH#46910 - TimelikeOps has deprecated signature
             codes, uniques = values.factorize(  # type: ignore[call-arg]
-                use_na_sentinel=True
+                use_na_sentinel=na_sentinel is not None
             )
         else:
+            na_sentinel_arg = -1 if na_sentinel is None else na_sentinel
             with warnings.catch_warnings():
                 # We've already warned above
                 warnings.filterwarnings("ignore", ".*use_na_sentinel.*", FutureWarning)
-                codes, uniques = values.factorize(na_sentinel=na_sentinel)
+                codes, uniques = values.factorize(na_sentinel=na_sentinel_arg)
 
     else:
         values = np.asarray(values)  # convert DTA/TDA/MultiIndex
         codes, uniques = factorize_array(
-            values, na_sentinel=na_sentinel, size_hint=size_hint
+            values,
+            na_sentinel=na_sentinel,
+            size_hint=size_hint,
         )
 
     if sort and len(uniques) > 0:
         uniques, codes = safe_sort(
             uniques, codes, na_sentinel=na_sentinel, assume_unique=True, verify=False
         )
-
-    code_is_na = codes == na_sentinel
-    if not dropna and code_is_na.any():
-        # na_value is set based on the dtype of uniques, and compat set to False is
-        # because we do not want na_value to be 0 for integers
-        na_value = na_value_for_dtype(uniques.dtype, compat=False)
-        uniques = np.append(uniques, [na_value])
-        codes = np.where(code_is_na, len(uniques) - 1, codes)
 
     uniques = _reconstruct_data(uniques, original.dtype, original)
 
@@ -1848,11 +1840,12 @@ def safe_sort(
         # may deal with them here without performance loss using `mode='wrap'`
         new_codes = reverse_indexer.take(codes, mode="wrap")
 
-        mask = codes == na_sentinel
-        if verify:
-            mask = mask | (codes < -len(values)) | (codes >= len(values))
+        if na_sentinel is not None:
+            mask = codes == na_sentinel
+            if verify:
+                mask = mask | (codes < -len(values)) | (codes >= len(values))
 
-    if mask is not None:
+    if na_sentinel is not None and mask is not None:
         np.putmask(new_codes, mask, na_sentinel)
 
     return ordered, ensure_platform_int(new_codes)
@@ -1861,7 +1854,7 @@ def safe_sort(
 def _sort_mixed(values) -> np.ndarray:
     """order ints before strings in 1d arrays, safe in py3"""
     str_pos = np.array([isinstance(x, str) for x in values], dtype=bool)
-    none_pos = np.array([x is None for x in values], dtype=bool)
+    none_pos = np.array([isna(x) for x in values], dtype=bool)
     nums = np.sort(values[~str_pos & ~none_pos])
     strs = np.sort(values[str_pos])
     return np.concatenate(

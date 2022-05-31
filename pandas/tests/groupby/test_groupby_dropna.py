@@ -1,5 +1,9 @@
+import copy
+
 import numpy as np
 import pytest
+
+from pandas.compat.pyarrow import pa_version_under1p01
 
 import pandas as pd
 import pandas._testing as tm
@@ -58,18 +62,23 @@ def test_groupby_dropna_multi_index_dataframe_nan_in_one_group(
         ),
         (
             False,
-            [["A", "B"], ["A", np.nan], ["B", "A"], [np.nan, "B"]],
+            # "null1" and "null2" are placeholders for fixtures
+            [["A", "B"], ["A", "null1"], ["A", "null2"], ["B", "A"], ["null1", "B"]],
             {
-                "c": [12.0, 13.3, 123.23, 1.0],
-                "d": [12.0, 234.0, 123.0, 1.0],
-                "e": [12.0, 13.0, 1.0, 1.0],
+                "c": [12.0, 12.3, 1.0, 123.23, 1.0],
+                "d": [12.0, 233.0, 1.0, 123.0, 1.0],
+                "e": [12.0, 12.0, 1.0, 1.0, 1.0],
             },
         ),
     ],
 )
-def test_groupby_dropna_multi_index_dataframe_nan_in_two_groups(
+def test_groupby_dropna_multi_index_dataframe_different_nan_in_two_groups(
     dropna, tuples, outputs, nulls_fixture, nulls_fixture2
 ):
+    if not dropna and type(nulls_fixture).__name__ == type(nulls_fixture2).__name__:
+        pytest.skip(
+            "tested in test_groupby_dropna_multi_index_dataframe_same_nan_in_two_groups"
+        )
     # GH 3729 this is to test that NA in different groups with different representations
     df_list = [
         ["A", "B", 12, 12, 12],
@@ -81,6 +90,60 @@ def test_groupby_dropna_multi_index_dataframe_nan_in_two_groups(
     df = pd.DataFrame(df_list, columns=["a", "b", "c", "d", "e"])
     grouped = df.groupby(["a", "b"], dropna=dropna).sum()
 
+    if not dropna:
+        tuples = copy.deepcopy(tuples)
+        tuples[1][1] = nulls_fixture
+        tuples[2][1] = nulls_fixture2
+        tuples[4][0] = nulls_fixture
+    mi = pd.MultiIndex.from_tuples(tuples, names=list("ab"))
+
+    # Since right now, by default MI will drop NA from levels when we create MI
+    # via `from_*`, so we need to add NA for level manually afterwards.
+    if not dropna:
+        mi = mi.set_levels([["A", "B", np.nan], ["A", "B", np.nan]])
+    expected = pd.DataFrame(outputs, index=mi)
+
+    tm.assert_frame_equal(grouped, expected)
+
+
+@pytest.mark.parametrize(
+    "dropna, tuples, outputs",
+    [
+        (
+            True,
+            [["A", "B"], ["B", "A"]],
+            {"c": [12.0, 123.23], "d": [12.0, 123.0], "e": [12.0, 1.0]},
+        ),
+        (
+            False,
+            # "null" is a placeholders for fixtures
+            [["A", "B"], ["A", "null"], ["B", "A"], ["null", "B"]],
+            {
+                "c": [12.0, 13.3, 123.23, 1.0],
+                "d": [12.0, 234.0, 123.0, 1.0],
+                "e": [12.0, 13.0, 1.0, 1.0],
+            },
+        ),
+    ],
+)
+def test_groupby_dropna_multi_index_dataframe_same_nan_in_two_groups(
+    dropna, tuples, outputs, nulls_fixture
+):
+    # GH 3729 this is to test that NA in different groups with different representations
+    df_list = [
+        ["A", "B", 12, 12, 12],
+        ["A", nulls_fixture, 12.3, 233.0, 12],
+        ["B", "A", 123.23, 123, 1],
+        [nulls_fixture, "B", 1, 1, 1.0],
+        ["A", nulls_fixture, 1, 1, 1.0],
+    ]
+    df = pd.DataFrame(df_list, columns=["a", "b", "c", "d", "e"])
+    grouped = df.groupby(["a", "b"], dropna=dropna).sum()
+
+    if not dropna:
+        tuples = copy.deepcopy(tuples)
+        tuples[1][1] = nulls_fixture
+        tuples[3][0] = nulls_fixture
     mi = pd.MultiIndex.from_tuples(tuples, names=list("ab"))
 
     # Since right now, by default MI will drop NA from levels when we create MI
@@ -380,10 +443,59 @@ def test_groupby_nan_included():
     assert list(result.keys())[0:2] == ["g1", "g2"]
 
 
-def test_groupby_drop_nan_with_multi_index():
-    # GH 39895
-    df = pd.DataFrame([[np.nan, 0, 1]], columns=["a", "b", "c"])
-    df = df.set_index(["a", "b"])
-    result = df.groupby(["a", "b"], dropna=False).first()
-    expected = df
-    tm.assert_frame_equal(result, expected)
+@pytest.mark.parametrize(
+    "values, dtype",
+    [
+        ([2, np.nan, 1, 2], None),
+        ([2, np.nan, 1, 2], "UInt8"),
+        ([2, np.nan, 1, 2], "Int8"),
+        ([2, np.nan, 1, 2], "UInt16"),
+        ([2, np.nan, 1, 2], "Int16"),
+        ([2, np.nan, 1, 2], "UInt32"),
+        ([2, np.nan, 1, 2], "Int32"),
+        ([2, np.nan, 1, 2], "UInt64"),
+        ([2, np.nan, 1, 2], "Int64"),
+        ([2, np.nan, 1, 2], "Float32"),
+        ([2, np.nan, 1, 2], "Int64"),
+        ([2, np.nan, 1, 2], "Float64"),
+        (["y", None, "x", "y"], "category"),
+        (["y", pd.NA, "x", "y"], "string"),
+        pytest.param(
+            ["y", pd.NA, "x", "y"],
+            "string[pyarrow]",
+            marks=pytest.mark.skipif(
+                pa_version_under1p01, reason="pyarrow is not installed"
+            ),
+        ),
+        (
+            ["2016-01-01", np.datetime64("NaT"), "2017-01-01", "2016-01-01"],
+            "datetime64[ns]",
+        ),
+        (
+            [
+                pd.Period("2012-02-01", freq="D"),
+                pd.NA,
+                pd.Period("2012-01-01", freq="D"),
+                pd.Period("2012-02-01", freq="D"),
+            ],
+            None,
+        ),
+        (pd.arrays.SparseArray([2, np.nan, 1, 2]), None),
+    ],
+)
+@pytest.mark.parametrize("test_series", [True, False])
+def test_no_sort_keep_na(values, dtype, test_series):
+    # GH#46584
+    key = pd.Series(values, dtype=dtype)
+    df = pd.DataFrame({"key": key, "a": [1, 2, 3, 4]})
+    gb = df.groupby("key", dropna=False, sort=False)
+    if test_series:
+        gb = gb["a"]
+    result = gb.sum()
+    expected = pd.DataFrame({"a": [5, 2, 3]}, index=key[:-1].rename("key"))
+    if test_series:
+        expected = expected["a"]
+    if expected.index.is_categorical():
+        # TODO: Slicing reorders categories?
+        expected.index = expected.index.reorder_categories(["y", "x"])
+    tm.assert_equal(result, expected)
