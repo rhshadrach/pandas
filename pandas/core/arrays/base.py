@@ -1026,7 +1026,9 @@ class ExtensionArray:
         return self.astype(object), np.nan
 
     def factorize(
-        self, na_sentinel: int | None = -1
+        self,
+        na_sentinel: int | lib.NoDefault = lib.no_default,
+        use_na_sentinel: bool | lib.NoDefault = lib.no_default,
     ) -> tuple[np.ndarray, ExtensionArray]:
         """
         Encode the extension array as an enumerated type.

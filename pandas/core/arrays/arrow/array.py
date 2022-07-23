@@ -18,6 +18,7 @@ from pandas._typing import (
 from pandas.compat import (
     pa_version_under1p01,
     pa_version_under2p0,
+    pa_version_under3p0,
     pa_version_under4p0,
     pa_version_under5p0,
     pa_version_under6p0,
@@ -488,8 +489,11 @@ class ArrowExtensionArray(OpsMixin, ExtensionArray):
 
     @doc(ExtensionArray.factorize)
     def factorize(
-        self, na_sentinel: int | None = -1
+        self,
+        na_sentinel: int | lib.NoDefault = lib.no_default,
+        use_na_sentinel: bool | lib.NoDefault = lib.no_default,
     ) -> tuple[np.ndarray, ExtensionArray]:
+        resolved_na_sentinel = resolve_na_sentinel(na_sentinel, use_na_sentinel)
         if pa_version_under4p0:
             encoded = self._data.dictionary_encode()
         else:
