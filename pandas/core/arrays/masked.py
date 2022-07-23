@@ -870,7 +870,9 @@ class BaseMaskedArray(OpsMixin, ExtensionArray):
 
     @doc(ExtensionArray.factorize)
     def factorize(
-        self, na_sentinel: int | None = -1
+        self,
+        na_sentinel: int | lib.NoDefault = lib.no_default,
+        use_na_sentinel: bool | lib.NoDefault = lib.no_default,
     ) -> tuple[np.ndarray, ExtensionArray]:
         resolved_na_sentinel = algos.resolve_na_sentinel(na_sentinel, use_na_sentinel)
         arr = self._data
