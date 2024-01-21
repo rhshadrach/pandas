@@ -61,6 +61,30 @@ cdef enum InterpolationEnumType:
     INTERPOLATION_NEAREST,
     INTERPOLATION_MIDPOINT
 
+ctypedef fused mean_t:
+    float64_t
+    float32_t
+    complex64_t
+    complex128_t
+
+ctypedef fused sum_t:
+    mean_t
+    int64_t
+    uint64_t
+    object
+
+cdef numeric_t _get_na_val(numeric_t val, bint is_datetimelike):
+    cdef:
+        numeric_t na_val
+
+    if numeric_t == float32_t or numeric_t == float64_t:
+        na_val = NaN
+    elif numeric_t is int64_t and is_datetimelike:
+        na_val = NPY_NAT
+    else:
+        # Used in case of masks
+        na_val = 0
+    return na_val
 
 cdef float64_t median_linear_mask(float64_t* a, int n, uint8_t* mask) noexcept nogil:
     cdef:
@@ -320,8 +344,8 @@ def group_cumprod(
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def group_cumsum(
-    int64float_t[:, ::1] out,
-    ndarray[int64float_t, ndim=2] values,
+    sum_t[:, ::1] out,
+    ndarray[sum_t, ndim=2] values,
     const intp_t[::1] labels,
     int ngroups,
     bint is_datetimelike,
@@ -357,8 +381,8 @@ def group_cumsum(
     """
     cdef:
         Py_ssize_t i, j, N, K
-        int64float_t val, y, t, na_val
-        int64float_t[:, ::1] accum, compensation
+        sum_t val, y, t, na_val
+        sum_t[:, ::1] accum, compensation
         uint8_t[:, ::1] accum_mask
         intp_t lab
         bint isna_entry, isna_prev = False
@@ -372,9 +396,9 @@ def group_cumsum(
     accum = np.zeros((ngroups, K), dtype=np.asarray(values).dtype)
     compensation = np.zeros((ngroups, K), dtype=np.asarray(values).dtype)
 
-    na_val = _get_na_val(<int64float_t>0, is_datetimelike)
+    na_val = _get_na_val(<sum_t>0, is_datetimelike)
 
-    with nogil:
+    with nogil(sum_t is not object):
         for i in range(N):
             lab = labels[i]
 
@@ -421,7 +445,7 @@ def group_cumsum(
                 else:
                     # For floats, use Kahan summation to reduce floating-point
                     # error (https://en.wikipedia.org/wiki/Kahan_summation_algorithm)
-                    if int64float_t == float32_t or int64float_t == float64_t:
+                    if sum_t == float32_t or sum_t == float64_t:
                         y = val - compensation[lab, j]
                         t = accum[lab, j] + y
                         compensation[lab, j] = t - accum[lab, j] - y
@@ -649,19 +673,6 @@ def group_any_all(
 # ----------------------------------------------------------------------
 # group_sum, group_prod, group_var, group_mean, group_ohlc
 # ----------------------------------------------------------------------
-
-ctypedef fused mean_t:
-    float64_t
-    float32_t
-    complex64_t
-    complex128_t
-
-ctypedef fused sum_t:
-    mean_t
-    int64_t
-    uint64_t
-    object
-
 
 @cython.wraparound(False)
 @cython.boundscheck(False)
@@ -1338,20 +1349,6 @@ cdef numeric_object_t _get_min_or_max(
         val=val,
         is_datetimelike=is_datetimelike,
     )
-
-
-cdef numeric_t _get_na_val(numeric_t val, bint is_datetimelike):
-    cdef:
-        numeric_t na_val
-
-    if numeric_t == float32_t or numeric_t == float64_t:
-        na_val = NaN
-    elif numeric_t is int64_t and is_datetimelike:
-        na_val = NPY_NAT
-    else:
-        # Used in case of masks
-        na_val = 0
-    return na_val
 
 
 ctypedef fused mincount_t:

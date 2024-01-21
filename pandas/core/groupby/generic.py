@@ -525,6 +525,9 @@ class SeriesGroupBy(GroupBy[Series]):
 
         obj = self._obj_with_exclusions
 
+        result = self._grouper._cython_operation(
+            "transform", obj._values, how, axis, **kwargs
+        )
         try:
             result = self._grouper._cython_operation(
                 "transform", obj._values, how, axis, **kwargs
