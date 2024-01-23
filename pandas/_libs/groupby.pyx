@@ -409,79 +409,133 @@ def group_cumsum(
 
     N, K = (<object>values).shape
 
-    if uses_mask:
-        accum_mask = np.zeros((ngroups, K), dtype="uint8")
+    accum_mask = np.ones((ngroups, K), dtype="uint8")
 
     accum = np.empty((ngroups, K), dtype=np.asarray(values).dtype)
     compensation = np.zeros((ngroups, K), dtype=np.asarray(values).dtype)
 
     na_val = _get_na_val(dummy, is_datetimelike)
+    accum[:] = na_val
 
     with nogil(sum_t is not object):
         for i in range(N):
             lab = labels[i]
+            is_seen = seen[lab]
+            seen[lab] = True
 
             if lab < 0:
                 continue
             for j in range(K):
                 val = values[i, j]
-                is_seen = seen[lab]
-                seen[lab] = True
 
                 if uses_mask:
                     isna_entry = mask[i, j]
                 else:
-                    isna_entry = _treat_as_na(val, is_datetimelike)
+                    isna_entry = _treat_as_na(val, False)
 
-                if not skipna and is_seen:
-                    if uses_mask:
+                if not isna_entry:
+                    if is_seen:
                         isna_prev = accum_mask[lab, j]
                     else:
-                        isna_prev = _treat_as_na(accum[lab, j], is_datetimelike)
+                        isna_prev = True
 
-                    if isna_prev:
+                    if not skipna and is_seen and isna_prev:
                         if uses_mask:
                             result_mask[i, j] = True
-                            # Be deterministic, out was initialized as empty
                             out[i, j] = 0
                         else:
                             out[i, j] = na_val
-                        continue
+                    elif isna_prev:
+                        accum[lab, j] = val
+                        accum_mask[lab, j] = False
+                        out[i, j] = val
+                    else:
+                        prev = accum[lab, j]
+                        # For floats, use Kahan summation to reduce floating-point error
+                        # (https://en.wikipedia.org/wiki/Kahan_summation_algorithm)
+                        if sum_t == float32_t or sum_t == float64_t:
+                            y = val - compensation[lab, j]
+                            t = prev + y
+                            compensation[lab, j] = t - prev - y
+                        else:
+                            t = val + prev
 
-                if isna_entry:
+                        accum[lab, j] = t
+                        out[i, j] = t
 
+                else:
+                    if uses_mask:
+                        result_mask[i, j] = True
+                        out[i, j] = 0
+                    else:
+                        out[i, j] = na_val
+
+                    if not skipna:
+                        accum[lab, j] = na_val
+                        accum_mask[lab, j] = True
+    return
+
+    # with nogil(sum_t is not object):
+    for i in range(N):
+        lab = labels[i]
+
+        if lab < 0:
+            continue
+        is_seen = seen[lab]
+        seen[lab] = True
+        for j in range(K):
+            val = values[i, j]
+
+            if uses_mask:
+                isna_entry = mask[i, j]
+            else:
+                isna_entry = _treat_as_na(val, is_datetimelike)
+
+            if not skipna and is_seen:
+                if uses_mask:
+                    isna_prev = accum_mask[lab, j]
+                else:
+                    isna_prev = _treat_as_na(accum[lab, j], is_datetimelike)
+
+                if isna_prev:
                     if uses_mask:
                         result_mask[i, j] = True
                         # Be deterministic, out was initialized as empty
                         out[i, j] = 0
                     else:
                         out[i, j] = na_val
+                    continue
 
-                    if not skipna:
-                        if uses_mask:
-                            accum_mask[lab, j] = True
-                        else:
-                            accum[lab, j] = na_val
+            if isna_entry:
 
-                elif sum_t == object:
-                    if is_seen:
-                        accum[lab, j] = accum[lab, j] + val
-                    else:
-                        accum[lab, j] = val
-                    out[i, j] = accum[lab, j]
+                if uses_mask:
+                    result_mask[i, j] = True
+                    # Be deterministic, out was initialized as empty
+                    out[i, j] = 0
                 else:
-                    prev = accum[lab, j] if is_seen else 0
-                    # For floats, use Kahan summation to reduce floating-point
-                    # error (https://en.wikipedia.org/wiki/Kahan_summation_algorithm)
-                    if sum_t == float32_t or sum_t == float64_t:
-                        y = val - compensation[lab, j]
-                        t = prev + y
-                        compensation[lab, j] = t - prev - y
-                    else:
-                        t = val + prev
+                    out[i, j] = na_val
 
-                    accum[lab, j] = t
-                    out[i, j] = t
+                if not skipna:
+                    if uses_mask:
+                        accum_mask[lab, j] = True
+                    else:
+                        accum[lab, j] = na_val
+
+            else:
+                prev = accum[lab, j] if is_seen else 0
+                print(lab, j, is_seen, na_val)
+                print(type(prev), prev)
+                # For floats, use Kahan summation to reduce floating-point
+                # error (https://en.wikipedia.org/wiki/Kahan_summation_algorithm)
+                if sum_t == float32_t or sum_t == float64_t:
+                    y = val - compensation[lab, j]
+                    t = prev + y
+                    compensation[lab, j] = t - prev - y
+                else:
+                    t = val + prev
+
+                accum[lab, j] = t
+                out[i, j] = t
 
 
 @cython.boundscheck(False)

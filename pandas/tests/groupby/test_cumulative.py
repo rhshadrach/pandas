@@ -43,6 +43,46 @@ def dtypes_for_minmax(request):
     return (dtype, min_val, max_val)
 
 
+def test_groupby_cumsum(any_numeric_dtype):
+    df = DataFrame({"a": [1, 1, 3, 2, 3], "b": 1, "c": 1}, dtype=any_numeric_dtype)
+    gb = df.groupby("a")
+    result = gb.cumsum()
+    values = [1, 2, 1, 1, 2]
+    expected = DataFrame({"b": values, "c": values}, dtype=any_numeric_dtype)
+    tm.assert_frame_equal(result, expected)
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        "float32",
+        "float64",
+        "Int64",
+        "UInt32",
+        "Float64",
+        "int32[pyarrow]",
+        "float[pyarrow]",
+        "object",
+    ],
+)
+# @pytest.mark.parametrize("dtype", ["float64"])
+@pytest.mark.parametrize("sequence_index", range(2**3))
+def test_groupby_cumsum_skipna(skipna, dtype, sequence_index):
+    # Convert sequence_index into a string sequence, e.g. 5 becomes "xxyz"
+    # This sequence is used for the grouper.
+    na_value = np.nan if dtype in ["float32", "float64"] else pd.NA
+    values = [{0: 1, 1: na_value}[sequence_index // (2**k) % 2] for k in range(3)]
+    df = DataFrame({"a": 1, "b": values, "c": values}, dtype=dtype)
+    gb = df.groupby("a")
+    result = gb.cumsum(skipna=skipna)
+    expected = df[["b", "c"]].cumsum(skipna=skipna).astype(dtype)
+    print(values)
+    print(df)
+    print(result)
+    print(expected)
+    tm.assert_frame_equal(result, expected)
+
+
 def test_groupby_cumprod():
     # GH 4095
     df = DataFrame({"key": ["b"] * 10, "value": 2})
