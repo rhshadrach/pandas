@@ -73,13 +73,13 @@ ctypedef fused sum_t:
     uint64_t
     object
 
-cdef numeric_t _get_na_val(numeric_t val, bint is_datetimelike):
+cdef sum_t _get_na_val(sum_t val, bint is_datetimelike):
     cdef:
-        numeric_t na_val
+        sum_t na_val
 
-    if numeric_t == float32_t or numeric_t == float64_t:
+    if sum_t == float32_t or sum_t == float64_t or sum_t == object:
         na_val = NaN
-    elif numeric_t is int64_t and is_datetimelike:
+    elif sum_t is int64_t and is_datetimelike:
         na_val = NPY_NAT
     else:
         # Used in case of masks
@@ -255,8 +255,8 @@ def group_median_float64(
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def group_cumprod(
-    int64float_t[:, ::1] out,
-    ndarray[int64float_t, ndim=2] values,
+    sum_t[:, ::1] out,
+    ndarray[sum_t, ndim=2] values,
     const intp_t[::1] labels,
     int ngroups,
     bint is_datetimelike,
@@ -292,21 +292,26 @@ def group_cumprod(
     """
     cdef:
         Py_ssize_t i, j, N, K
-        int64float_t val, na_val
-        int64float_t[:, ::1] accum
+        sum_t val, na_val
+        sum_t[:, ::1] accum
         intp_t lab
+        uint8_t[::1] seen = np.zeros(ngroups, dtype=bool)
+        bint is_seen
         uint8_t[:, ::1] accum_mask
         bint isna_entry, isna_prev = False
         bint uses_mask = mask is not None
+        sum_t dummy = 0
 
     N, K = (<object>values).shape
-    accum = np.ones((ngroups, K), dtype=(<object>values).dtype)
-    na_val = _get_na_val(<int64float_t>0, is_datetimelike)
+    accum = np.empty((ngroups, K), dtype=(<object>values).dtype)
+    na_val = _get_na_val(dummy, is_datetimelike)
     accum_mask = np.zeros((ngroups, K), dtype="uint8")
 
-    with nogil:
+    with nogil(sum_t is not object):
         for i in range(N):
             lab = labels[i]
+            is_seen = seen[lab]
+            seen[lab] = True
 
             if lab < 0:
                 continue
@@ -319,14 +324,26 @@ def group_cumprod(
                     isna_entry = _treat_as_na(val, False)
 
                 if not isna_entry:
-                    isna_prev = accum_mask[lab, j]
-                    if isna_prev:
-                        out[i, j] = na_val
-                        if uses_mask:
-                            result_mask[i, j] = True
-
+                    if is_seen:
+                        isna_prev = accum_mask[lab, j]
                     else:
-                        accum[lab, j] *= val
+                        isna_prev = False
+
+                    if isna_prev:
+                        if skipna:
+                            out[i, j] = val
+                            accum[lab, j] = val
+                        else:
+                            out[i, j] = na_val
+                            accum[lab, j] = na_val
+                            accum_mask[lab, j] = True
+                            if uses_mask:
+                                result_mask[i, j] = True
+                    elif not is_seen:
+                        accum[lab, j] = val
+                        out[i, j] = val
+                    else:
+                        accum[lab, j] = accum[lab, j] * val
                         out[i, j] = accum[lab, j]
 
                 else:
@@ -336,9 +353,8 @@ def group_cumprod(
                     else:
                         out[i, j] = na_val
 
-                    if not skipna:
-                        accum[lab, j] = na_val
-                        accum_mask[lab, j] = True
+                    accum[lab, j] = na_val
+                    accum_mask[lab, j] = True
 
 
 @cython.boundscheck(False)
@@ -381,22 +397,25 @@ def group_cumsum(
     """
     cdef:
         Py_ssize_t i, j, N, K
-        sum_t val, y, t, na_val
+        sum_t val, y, t, na_val, prev
         sum_t[:, ::1] accum, compensation
         uint8_t[:, ::1] accum_mask
+        uint8_t[::1] seen = np.zeros(ngroups, dtype=bool)
+        bint is_seen
         intp_t lab
         bint isna_entry, isna_prev = False
         bint uses_mask = mask is not None
+        sum_t dummy = 0
 
     N, K = (<object>values).shape
 
     if uses_mask:
         accum_mask = np.zeros((ngroups, K), dtype="uint8")
 
-    accum = np.zeros((ngroups, K), dtype=np.asarray(values).dtype)
+    accum = np.empty((ngroups, K), dtype=np.asarray(values).dtype)
     compensation = np.zeros((ngroups, K), dtype=np.asarray(values).dtype)
 
-    na_val = _get_na_val(<sum_t>0, is_datetimelike)
+    na_val = _get_na_val(dummy, is_datetimelike)
 
     with nogil(sum_t is not object):
         for i in range(N):
@@ -406,13 +425,15 @@ def group_cumsum(
                 continue
             for j in range(K):
                 val = values[i, j]
+                is_seen = seen[lab]
+                seen[lab] = True
 
                 if uses_mask:
                     isna_entry = mask[i, j]
                 else:
                     isna_entry = _treat_as_na(val, is_datetimelike)
 
-                if not skipna:
+                if not skipna and is_seen:
                     if uses_mask:
                         isna_prev = accum_mask[lab, j]
                     else:
@@ -442,15 +463,22 @@ def group_cumsum(
                         else:
                             accum[lab, j] = na_val
 
+                elif sum_t == object:
+                    if is_seen:
+                        accum[lab, j] = accum[lab, j] + val
+                    else:
+                        accum[lab, j] = val
+                    out[i, j] = accum[lab, j]
                 else:
+                    prev = accum[lab, j] if is_seen else 0
                     # For floats, use Kahan summation to reduce floating-point
                     # error (https://en.wikipedia.org/wiki/Kahan_summation_algorithm)
                     if sum_t == float32_t or sum_t == float64_t:
                         y = val - compensation[lab, j]
-                        t = accum[lab, j] + y
-                        compensation[lab, j] = t - accum[lab, j] - y
+                        t = prev + y
+                        compensation[lab, j] = t - prev - y
                     else:
-                        t = val + accum[lab, j]
+                        t = val + prev
 
                     accum[lab, j] = t
                     out[i, j] = t

@@ -183,7 +183,7 @@ class WrappedCythonOp:
         if is_numeric:
             return f
         elif dtype == np.dtype(object):
-            if how in ["median", "cumprod"]:
+            if how in ["median"]:
                 # no fused types -> no __signatures__
                 raise NotImplementedError(
                     f"function is not implemented for this dtype: "
