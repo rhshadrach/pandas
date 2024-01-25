@@ -4,6 +4,13 @@ Template for each `dtype` helper function for hashtable
 WARNING: DO NOT edit .pxi FILE directly, .pxi is generated from .pxi.in
 """
 
+from cpython.ref cimport (
+    Py_XDECREF,
+)
+from cpython.exc cimport (
+    PyErr_Occurred,
+    PyErr_Fetch,
+)
 
 {{py:
 
@@ -462,9 +469,33 @@ cdef class {{name}}HashTable(HashTable):
         cdef:
             khiter_t k
             {{c_type}} cval
+            PyObject *type
+            PyObject *value
+            PyObject *traceback
 
         cval = {{to_c_type}}(val)
         k = kh_get_{{dtype}}(self.table, cval)
+        if PyErr_Occurred():
+            PyErr_Fetch(&type, &value, &traceback)
+            Py_XDECREF(traceback)
+
+            if value != NULL:
+                old_exc = <object>value
+                Py_XDECREF(value)
+
+                # PyErr_Fetch only returned the error message in *value,
+                # so the Exception class must be extracted from *type.
+                if isinstance(old_exc, str):
+                    if type != NULL:
+                        exc_type = <object>type
+                    else:
+                        exc_type = ValueError
+
+                    Py_XDECREF(type)
+                    raise exc_type(old_exc)
+                else:
+                    Py_XDECREF(type)
+                    raise old_exc
         if k != self.table.n_buckets:
             return self.table.vals[k]
         else:

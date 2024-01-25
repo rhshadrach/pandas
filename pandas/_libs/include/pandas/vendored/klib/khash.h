@@ -287,6 +287,9 @@ static const double __ac_HASH_UPPER = 0.77;
       khuint_t inc, k, i, last, mask;                                          \
       mask = h->n_buckets - 1;                                                 \
       k = __hash_func(key);                                                    \
+      if (k == -1) {                                                           \
+        return -1;                                                             \
+      }                                                                        \
       i = k & mask;                                                            \
       inc = __ac_inc(k, mask);                                                 \
       last = i; /* inc==1 for linear probing */                                \

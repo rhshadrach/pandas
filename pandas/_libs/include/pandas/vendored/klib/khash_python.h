@@ -327,7 +327,10 @@ static inline khuint32_t kh_python_hash_func(PyObject *key) {
   }
 
   if (hash == -1) {
-    PyErr_Clear();
+    if (PyErr_Occurred()) {
+      return -1;
+    }
+    //PyErr_Clear();
     return 0;
   }
 #if SIZEOF_PY_HASH_T == 4
