@@ -76,10 +76,6 @@ def test_groupby_cumsum_skipna(skipna, dtype, sequence_index):
     gb = df.groupby("a")
     result = gb.cumsum(skipna=skipna)
     expected = df[["b", "c"]].cumsum(skipna=skipna).astype(dtype)
-    print(values)
-    print(df)
-    print(result)
-    print(expected)
     tm.assert_frame_equal(result, expected)
 
 
