@@ -1888,7 +1888,7 @@ def test_groupby_categorical_dropna(observed, dropna):
 @pytest.mark.parametrize("index_kind", ["range", "single", "multi"])
 @pytest.mark.parametrize("ordered", [True, False])
 def test_category_order_reducer(
-    request, as_index, sort, observed, reduction_func, index_kind, ordered
+    as_index, sort, observed, reduction_func, index_kind, ordered
 ):
     # GH#48749
     if index_kind != "range" and not as_index:
