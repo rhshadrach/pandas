@@ -426,8 +426,7 @@ class SeriesGroupBy(GroupBy[Series]):
             if isinstance(result, Series):
                 result.name = self.obj.name
             if not self.as_index and not_indexed_same:
-                result = self._insert_inaxis_grouper(result)
-                result.index = default_index(len(result))
+                result = result.reset_index()
             return result
         else:
             # GH #6265 #24880
@@ -435,8 +434,7 @@ class SeriesGroupBy(GroupBy[Series]):
                 data=values, index=self._grouper.result_index, name=self.obj.name
             )
             if not self.as_index:
-                result = self._insert_inaxis_grouper(result)
-                result.index = default_index(len(result))
+                result = result.reset_index()
             return self._reindex_output(result)
 
     def _aggregate_named(self, func, *args, **kwargs):
@@ -1441,8 +1439,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
                     result.columns = self._obj_with_exclusions.columns.copy()
 
         if not self.as_index:
-            result = self._insert_inaxis_grouper(result)
-            result.index = default_index(len(result))
+            result = result.reset_index()
 
         return result
 
@@ -1525,7 +1522,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
                 is_transform=is_transform,
             )
 
-        key_index = self._grouper.result_index if self.as_index else None
+        key_index = self._grouper.result_index
 
         if isinstance(first_not_none, (np.ndarray, Index)):
             # GH#1738: values is list of arrays of unequal lengths
@@ -1541,18 +1538,19 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
                 # (expression has type "Hashable", variable
                 # has type "Tuple[Any, ...]")
                 name = self._selection  # type: ignore[assignment]
-            return self.obj._constructor_sliced(values, index=key_index, name=name)
+            result = self.obj._constructor_sliced(values, index=key_index, name=name)
+            if not self.as_index:
+                result = result.reset_index()
+            return result
         elif not isinstance(first_not_none, Series):
             # values are not series or array-like but scalars
             # self._selection not passed through to Series as the
             # result should not take the name of original selection
             # of columns
-            if self.as_index:
-                return self.obj._constructor_sliced(values, index=key_index)
-            else:
-                result = self.obj._constructor(values, columns=[self._selection])
-                result = self._insert_inaxis_grouper(result)
-                return result
+            result = self.obj._constructor_sliced(values, index=key_index)
+            if not self.as_index:
+                result = result.reset_index()
+            return result
         else:
             # values are Series
             return self._wrap_applied_output_series(
@@ -1603,7 +1601,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
         result = self.obj._constructor(stacked_values, index=index, columns=columns)
 
         if not self.as_index:
-            result = self._insert_inaxis_grouper(result)
+            result = result.reset_index()
 
         return self._reindex_output(result)
 
@@ -1954,8 +1952,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
             res_df = concat(results, keys=columns, axis=1)
 
         if not self.as_index:
-            res_df.index = default_index(len(res_df))
-            res_df = self._insert_inaxis_grouper(res_df)
+            res_df = res_df.reset_index()
         return res_df
 
     def nunique(self, dropna: bool = True) -> DataFrame:

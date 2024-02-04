@@ -1386,25 +1386,21 @@ class GroupBy(BaseGroupBy[NDFrameT]):
         from pandas.core.reshape.concat import concat
 
         if self.group_keys and not is_transform:
-            if self.as_index:
-                # possible MI return case
-                group_keys = self._grouper.result_index
-                group_levels = self._grouper.levels
-                group_names = self._grouper.names
+            # possible MI return case
+            group_keys = self._grouper.result_index
+            group_levels = self._grouper.levels
+            group_names = self._grouper.names
 
-                result = concat(
-                    values,
-                    axis=0,
-                    keys=group_keys,
-                    levels=group_levels,
-                    names=group_names,
-                    sort=False,
-                )
-            else:
-                # GH5610, returns a MI, with the first level being a
-                # range index
-                keys = list(range(len(values)))
-                result = concat(values, axis=0, keys=keys)
+            result = concat(
+                values,
+                axis=0,
+                keys=group_keys,
+                levels=group_levels,
+                names=group_names,
+                sort=False,
+            )
+            if not self.as_index:
+                result = result.reset_index()
 
         elif not not_indexed_same:
             result = concat(values, axis=0)
@@ -1485,20 +1481,13 @@ class GroupBy(BaseGroupBy[NDFrameT]):
             # GH #28549
             # When using .apply(-), name will be in columns already
             if name not in columns:
-                if in_axis:
-                    result.insert(0, name, lev)
-                else:
-                    msg = (
-                        "A grouping was used that is not in the columns of the "
-                        "DataFrame and so was excluded from the result. This grouping "
-                        "will be included in a future version of pandas. Add the "
-                        "grouping as a column of the DataFrame to silence this warning."
-                    )
-                    warnings.warn(
-                        message=msg,
-                        category=FutureWarning,
-                        stacklevel=find_stack_level(),
-                    )
+                # TODO: Should raise when we group, not after computation
+                result.insert(
+                    0,
+                    name,
+                    lev,
+                    allow_duplicates=self.obj.flags.allows_duplicate_labels,
+                )
 
         return result
 
@@ -1522,15 +1511,17 @@ class GroupBy(BaseGroupBy[NDFrameT]):
         # ATM we do not get here for SeriesGroupBy; when we do, we will
         #  need to require that result.name already match self.obj.name
 
-        if not self.as_index:
-            # `not self.as_index` is only relevant for DataFrameGroupBy,
-            #   enforced in __init__
-            result = self._insert_inaxis_grouper(result)
-            result = result._consolidate()
-            index = Index(range(self._grouper.ngroups))
-
-        else:
-            index = self._grouper.result_index
+        # if not self.as_index:
+        #     # `not self.as_index` is only relevant for DataFrameGroupBy,
+        #     #   enforced in __init__
+        #     # result = self._insert_inaxis_grouper(result)
+        #     result = result.reset_index()
+        #     result = result._consolidate()
+        #     index = Index(range(self._grouper.ngroups))
+        #
+        # else:
+        #     index = self._grouper.result_index
+        index = self._grouper.result_index
 
         if qs is not None:
             # We get here with len(qs) != 1 and not self.as_index
@@ -1538,6 +1529,10 @@ class GroupBy(BaseGroupBy[NDFrameT]):
             index = _insert_quantile_level(index, qs)
 
         result.index = index
+        if not self.as_index:
+            result = result.reset_index(
+                allow_duplicates=self.obj.flags.allows_duplicate_labels
+            )
 
         return self._reindex_output(result, qs=qs)
 
@@ -1692,8 +1687,7 @@ class GroupBy(BaseGroupBy[NDFrameT]):
             result_kwargs = {"columns": data.columns}
         res = data._constructor(result, index=index, **result_kwargs)
         if not self.as_index:
-            res = self._insert_inaxis_grouper(res)
-            res.index = default_index(len(res))
+            res = res.reset_index()
         return res
 
     # -----------------------------------------------------------------
@@ -5385,39 +5379,12 @@ class GroupBy(BaseGroupBy[NDFrameT]):
         if self.sort:
             index = index.sort_values()
 
-        if self.as_index:
-            # Always holds for SeriesGroupBy unless GH#36507 is implemented
-            return output.reindex(index=index, copy=False, fill_value=fill_value)
-
-        # GH 13204
-        # Here, the categorical in-axis groupers, which need to be fully
-        # expanded, are columns in `output`. An idea is to do:
-        # output = output.set_index(self._grouper.names)
-        #                .reindex(index).reset_index()
-        # but special care has to be taken because of possible not-in-axis
-        # groupers.
-        # So, we manually select and drop the in-axis grouper columns,
-        # reindex `output`, and then reset the in-axis grouper columns.
-
-        # Select in-axis groupers
-        in_axis_grps = [
-            (i, ping.name) for (i, ping) in enumerate(groupings) if ping.in_axis
-        ]
-        if len(in_axis_grps) > 0:
-            g_nums, g_names = zip(*in_axis_grps)
-            output = output.drop(labels=list(g_names), axis=1)
-
-        # Set a temp index and reindex (possibly expanding)
-        output = output.set_index(self._grouper.result_index).reindex(
-            index, copy=False, fill_value=fill_value
-        )
-
-        # Reset in-axis grouper columns
-        # (using level numbers `g_nums` because level names may not be unique)
-        if len(in_axis_grps) > 0:
-            output = output.reset_index(level=g_nums)
-
-        return output.reset_index(drop=True)
+        result = output.reindex(index=index, copy=False, fill_value=fill_value)
+        if not self.as_index:
+            result = result.reset_index(
+                allow_duplicates=self.obj.flags.allows_duplicate_labels
+            )
+        return result
 
     @final
     def sample(

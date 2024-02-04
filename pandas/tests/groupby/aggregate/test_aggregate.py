@@ -1044,11 +1044,13 @@ def test_groupby_as_index_agg(df):
     tm.assert_frame_equal(res, alt)
 
     for attr in ["mean", "max", "count", "idxmax", "cumsum", "all"]:
-        gr = df.groupby(ts, as_index=False)
+        gr = df.groupby(ts.values, as_index=False)
         left = getattr(gr, attr)()
 
         gr = df.groupby(ts.values, as_index=True)
-        right = getattr(gr, attr)().reset_index(drop=True)
+        right = getattr(gr, attr)()
+        if attr != "cumsum":
+            right = right.reset_index()
 
         tm.assert_frame_equal(left, right)
 
@@ -1260,11 +1262,7 @@ def test_pass_args_kwargs_duplicate_columns(tsframe, as_index):
     # go through _aggregate_frame with self.axis == 0 and duplicate columns
     tsframe.columns = ["A", "B", "A", "C"]
     gb = tsframe.groupby(lambda x: x.month, as_index=as_index)
-
-    warn = None if as_index else FutureWarning
-    msg = "A grouping .* was excluded from the result"
-    with tm.assert_produces_warning(warn, match=msg):
-        res = gb.agg(np.percentile, 80, axis=0)
+    res = gb.agg(np.percentile, 80, axis=0)
 
     ex_data = {
         1: tsframe[tsframe.index.month == 1].quantile(0.8),
@@ -1272,8 +1270,7 @@ def test_pass_args_kwargs_duplicate_columns(tsframe, as_index):
     }
     expected = DataFrame(ex_data).T
     if not as_index:
-        # TODO: try to get this more consistent?
-        expected.index = Index(range(2))
+        expected = expected.reset_index()
 
     tm.assert_frame_equal(res, expected)
 
