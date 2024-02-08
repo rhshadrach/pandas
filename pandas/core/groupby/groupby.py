@@ -128,7 +128,6 @@ from pandas.core.indexes.api import (
     Index,
     MultiIndex,
     RangeIndex,
-    default_index,
 )
 from pandas.core.internals.blocks import ensure_block_shape
 from pandas.core.series import Series
@@ -1396,6 +1395,7 @@ class GroupBy(BaseGroupBy[NDFrameT]):
                 names=group_names,
                 sort=False,
             )
+            # TODO: Might need changed - see test_as_index_select_column
             if not self.as_index and not_indexed_same:
                 result = result.reset_index()
 
@@ -1464,31 +1464,6 @@ class GroupBy(BaseGroupBy[NDFrameT]):
         return result
 
     @final
-    def _insert_inaxis_grouper(self, result: Series | DataFrame) -> DataFrame:
-        if isinstance(result, Series):
-            result = result.to_frame()
-
-        # zip in reverse so we can always insert at loc 0
-        columns = result.columns
-        for name, lev, in_axis in zip(
-            reversed(self._grouper.names),
-            reversed(self._grouper.get_group_levels()),
-            reversed([grp.in_axis for grp in self._grouper.groupings]),
-        ):
-            # GH #28549
-            # When using .apply(-), name will be in columns already
-            if name not in columns:
-                # TODO: Should raise when we group, not after computation
-                result.insert(
-                    0,
-                    name,
-                    lev,
-                    allow_duplicates=self.obj.flags.allows_duplicate_labels,
-                )
-
-        return result
-
-    @final
     def _wrap_aggregated_output(
         self,
         result: Series | DataFrame,
@@ -1507,19 +1482,7 @@ class GroupBy(BaseGroupBy[NDFrameT]):
         """
         # ATM we do not get here for SeriesGroupBy; when we do, we will
         #  need to require that result.name already match self.obj.name
-
-        # if not self.as_index:
-        #     # `not self.as_index` is only relevant for DataFrameGroupBy,
-        #     #   enforced in __init__
-        #     # result = self._insert_inaxis_grouper(result)
-        #     result = result.reset_index()
-        #     result = result._consolidate()
-        #     index = Index(range(self._grouper.ngroups))
-        #
-        # else:
-        #     index = self._grouper.result_index
         index = self._grouper.result_index
-
         if qs is not None:
             # We get here with len(qs) != 1 and not self.as_index
             #  in test_pass_args_kwargs
@@ -3469,8 +3432,7 @@ class GroupBy(BaseGroupBy[NDFrameT]):
         # GH#49256 - properly handle the grouping column(s)
         result = result.unstack()
         if not self.as_index:
-            result = self._insert_inaxis_grouper(result)
-            result.index = default_index(len(result))
+            result = result.reset_index()
 
         return result
 

@@ -79,7 +79,6 @@ from pandas.core.indexes.api import (
     Index,
     MultiIndex,
     all_indexes_same,
-    default_index,
 )
 from pandas.core.series import Series
 from pandas.core.sorting import get_group_index
@@ -432,7 +431,7 @@ class SeriesGroupBy(GroupBy[Series]):
             result = self.obj._constructor(
                 data=values, index=self._grouper.result_index, name=self.obj.name
             )
-            if not self.as_index and not_indexed_same:
+            if not self.as_index:
                 result = result.reset_index()
             return result
 
@@ -686,8 +685,7 @@ class SeriesGroupBy(GroupBy[Series]):
             res, index=ri, name=self.obj.name
         )
         if not self.as_index:
-            result = self._insert_inaxis_grouper(result)
-            result.index = default_index(len(result))
+            result = result.reset_index()
         return result
 
     @doc(Series.describe)
@@ -1556,7 +1554,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
             # result should not take the name of original selection
             # of columns
             result = self.obj._constructor_sliced(values, index=key_index)
-            if not self.as_index and not_indexed_same:
+            if not self.as_index:
                 result = result.reset_index()
             return result
         else:
@@ -1608,7 +1606,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
             stacked_values = stacked_values.tolist()
         result = self.obj._constructor(stacked_values, index=index, columns=columns)
 
-        if not self.as_index and not_indexed_same:
+        if not self.as_index:
             result = result.reset_index()
 
         return result

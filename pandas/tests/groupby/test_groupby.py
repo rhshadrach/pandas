@@ -114,9 +114,6 @@ def test_pass_args_kwargs(ts, tsframe):
 
         apply_result = df_grouped.apply(DataFrame.quantile, [0.4, 0.8])
         expected_seq = df_grouped.quantile([0.4, 0.8])
-        print(as_index)
-        print(apply_result)
-        print(expected_seq)
         tm.assert_frame_equal(apply_result, expected_seq, check_names=False)
 
         agg_result = df_grouped.agg(f, q=80)
@@ -492,6 +489,7 @@ def test_as_index_select_column():
     result = df.groupby("A", as_index=False, group_keys=True)["B"].apply(
         lambda x: x.cumsum()
     )
+    # TODO: Report bug
     expected = Series(
         [2, 6, 6],
         name="B",
