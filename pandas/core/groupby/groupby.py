@@ -1396,7 +1396,7 @@ class GroupBy(BaseGroupBy[NDFrameT]):
                 names=group_names,
                 sort=False,
             )
-            if not self.as_index:
+            if not self.as_index and not_indexed_same:
                 result = result.reset_index()
 
         elif not not_indexed_same:
@@ -2757,22 +2757,12 @@ class GroupBy(BaseGroupBy[NDFrameT]):
             # Handle groups of non-observed categories
             result_series = result_series.fillna(0.0)
 
-        result: Series | DataFrame
-        if self.as_index:
-            result = result_series
-        else:
-            # Convert to frame
-            index = result_series.index
-            columns = com.fill_missing_names(index.names)
-            if name in columns:
-                raise ValueError(f"Column label '{name}' is duplicate of result column")
-            result_series.name = name
-            result_series.index = index.set_names(range(len(columns)))
-            result_frame = result_series.reset_index()
-            orig_dtype = self._grouper.groupings[0].obj.columns.dtype  # type: ignore[union-attr]
-            cols = Index(columns, dtype=orig_dtype).insert(len(columns), name)
-            result_frame.columns = cols
-            result = result_frame
+        result: Series | DataFrame = result_series
+        if not self.as_index:
+            result = result.reset_index()
+            columns = com.fill_missing_names(result_series.index.names)
+            orig_dtype = self._grouper.groupings[0].obj.columns.dtype
+            result.columns = Index(columns, dtype=orig_dtype).insert(len(columns), name)
         return result.__finalize__(self.obj, method="value_counts")
 
     @final

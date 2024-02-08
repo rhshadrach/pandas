@@ -432,7 +432,7 @@ class SeriesGroupBy(GroupBy[Series]):
             result = self.obj._constructor(
                 data=values, index=self._grouper.result_index, name=self.obj.name
             )
-            if not self.as_index:
+            if not self.as_index and not_indexed_same:
                 result = result.reset_index()
             return result
 
@@ -1547,7 +1547,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
                 # has type "Tuple[Any, ...]")
                 name = self._selection  # type: ignore[assignment]
             result = self.obj._constructor_sliced(values, index=key_index, name=name)
-            if not self.as_index:
+            if not self.as_index and not_indexed_same:
                 result = result.reset_index()
             return result
         elif not isinstance(first_not_none, Series):
@@ -1556,7 +1556,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
             # result should not take the name of original selection
             # of columns
             result = self.obj._constructor_sliced(values, index=key_index)
-            if not self.as_index:
+            if not self.as_index and not_indexed_same:
                 result = result.reset_index()
             return result
         else:
@@ -1608,7 +1608,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
             stacked_values = stacked_values.tolist()
         result = self.obj._constructor(stacked_values, index=index, columns=columns)
 
-        if not self.as_index:
+        if not self.as_index and not_indexed_same:
             result = result.reset_index()
 
         return result

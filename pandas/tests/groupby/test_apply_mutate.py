@@ -88,11 +88,11 @@ def test_apply_function_with_indexing():
     msg = "DataFrameGroupBy.apply operated on the grouping columns"
     with tm.assert_produces_warning(DeprecationWarning, match=msg):
         result = df.groupby(["col1"], as_index=False).apply(fn)
-    expected = pd.Series(
-        [1, 2, 0, 4, 5, 0],
-        index=pd.MultiIndex.from_tuples(
-            [(0, 0), (0, 1), (0, 2), (1, 3), (1, 4), (1, 5)]
-        ),
-        name="col2",
+    expected = pd.DataFrame(
+        {
+            "col1": list("AAABBB"),
+            "level_1": range(6),
+            "col2": [1, 2, 0, 4, 5, 0],
+        }
     )
-    tm.assert_series_equal(result, expected)
+    tm.assert_frame_equal(result, expected)

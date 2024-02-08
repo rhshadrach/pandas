@@ -493,7 +493,9 @@ def test_as_index_select_column():
         lambda x: x.cumsum()
     )
     expected = Series(
-        [2, 6, 6], name="B", index=MultiIndex.from_tuples([(0, 0), (0, 1), (1, 2)])
+        [2, 6, 6],
+        name="B",
+        index=MultiIndex.from_tuples([(1, 0), (1, 1), (5, 2)], names=["A", None]),
     )
     tm.assert_series_equal(result, expected)
 

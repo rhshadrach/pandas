@@ -310,12 +310,11 @@ def test_groupby_as_index_apply():
     msg = "DataFrameGroupBy.apply operated on the grouping columns"
     with tm.assert_produces_warning(DeprecationWarning, match=msg):
         res_as_apply = g_as.apply(lambda x: x.head(2)).index
-    with tm.assert_produces_warning(DeprecationWarning, match=msg):
-        res_not_as_apply = g_not_as.apply(lambda x: x.head(2)).index
+    res_not_as_apply = g_not_as.apply(lambda x: x.head(2), include_groups=False).index
 
     # apply doesn't maintain the original ordering
     # changed in GH5610 as the as_index=False returns a MI here
-    exp_not_as_apply = MultiIndex.from_tuples([(0, 0), (0, 2), (1, 1), (2, 4)])
+    exp_not_as_apply = pd.RangeIndex(4)
     tp = [(1, 0), (1, 2), (2, 1), (3, 4)]
     exp_as_apply = MultiIndex.from_tuples(tp, names=["user_id", None])
 
@@ -1246,7 +1245,7 @@ def test_apply_dropna_with_indexed_same(dropna):
         [
             False,
             DataFrame(
-                [[1, 1, 1], [2, 2, 1]], columns=Index(["a", "b", None], dtype=object)
+                [[1, 1, 1], [2, 2, 1]], columns=Index(["a", "b", 0], dtype=object)
             ),
         ],
         [

@@ -328,15 +328,6 @@ def test_against_frame_and_seriesgroupby(
         if as_index:
             tm.assert_series_equal(result, expected)
         else:
-            name = "proportion" if normalize else "count"
-            expected = expected.reset_index().rename({0: name}, axis=1)
-            if groupby == "column":
-                expected = expected.rename({"level_0": "country"}, axis=1)
-                expected["country"] = np.where(expected["country"], "US", "FR")
-            elif groupby == "function":
-                expected["level_0"] = expected["level_0"] == 1
-            else:
-                expected["level_0"] = np.where(expected["level_0"], "US", "FR")
             tm.assert_frame_equal(result, expected)
     else:
         # compare against SeriesGroupBy value_counts
@@ -393,6 +384,18 @@ def test_compound(
     gp = education_df.groupby(["country", "gender"], as_index=False, sort=False)
     result = gp["education"].value_counts(
         normalize=normalize, sort=sort, ascending=ascending
+    )
+    gp = education_df.groupby(["country", "gender"], as_index=True, sort=False)
+    print(
+        gp["education"]
+        .value_counts(normalize=normalize, sort=sort, ascending=ascending)
+        .index.dtypes
+    )
+    print(
+        gp["education"]
+        .value_counts(normalize=normalize, sort=sort, ascending=ascending)
+        .reset_index()
+        .dtypes
     )
     expected = DataFrame()
     for column in ["country", "gender", "education"]:
@@ -1009,8 +1012,8 @@ def test_column_label_duplicates(test, columns, expected_names, as_index):
     df = DataFrame([[1, 3, 5, 7, 9], [2, 4, 6, 8, 10]], columns=columns)
     expected_data = [(1, 0, 7, 3, 5, 9), (2, 1, 8, 4, 6, 10)]
     keys = ["a", np.array([0, 1], dtype=np.int64), "d"]
-    result = df.groupby(keys, as_index=as_index).value_counts()
     if as_index:
+        result = df.groupby(keys, as_index=as_index).value_counts()
         expected = Series(
             data=(1, 1),
             index=MultiIndex.from_tuples(
@@ -1021,12 +1024,10 @@ def test_column_label_duplicates(test, columns, expected_names, as_index):
         )
         tm.assert_series_equal(result, expected)
     else:
-        expected_data = [list(row) + [1] for row in expected_data]
-        expected_columns = list(expected_names)
-        expected_columns[1] = "level_1"
-        expected_columns.append("count")
-        expected = DataFrame(expected_data, columns=expected_columns)
-        tm.assert_frame_equal(result, expected)
+        name = "b" if test == "repeat" else "level_1"
+        msg = f"cannot insert {name}, already exists"
+        with pytest.raises(ValueError, match=msg):
+            df.groupby(keys, as_index=as_index).value_counts()
 
 
 @pytest.mark.parametrize(
@@ -1041,7 +1042,7 @@ def test_result_label_duplicates(normalize, expected_label):
     gb = DataFrame([[1, 2, 3]], columns=["a", "b", expected_label]).groupby(
         "a", as_index=False
     )
-    msg = f"Column label '{expected_label}' is duplicate of result column"
+    msg = f"cannot insert {expected_label}, already exists"
     with pytest.raises(ValueError, match=msg):
         gb.value_counts(normalize=normalize)
 

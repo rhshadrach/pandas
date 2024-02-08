@@ -811,7 +811,7 @@ def test_as_index():
     expected = DataFrame(
         {
             "cat": Categorical([1, 2], categories=df.cat.cat.categories),
-            None: [10, 11],
+            "level_1": [10, 11],
             "A": [10, 22],
             "B": [101, 205],
         },
@@ -821,7 +821,7 @@ def test_as_index():
     # another not in-axis grouper (conflicting names in index)
     s = Series(["a", "b", "b"], name="cat")
     result = df.groupby(["cat", s], as_index=False, observed=True).sum()
-    expected[None] = ["a", "b"]
+    expected["level_1"] = ["a", "b"]
     expected.columns = ["cat", "cat", "A", "B"]
     tm.assert_frame_equal(result, expected)
 
@@ -1916,6 +1916,13 @@ def test_category_order_reducer(
         with pytest.raises(
             ValueError, match="empty group due to unobserved categories"
         ):
+            getattr(gb, reduction_func)(*args)
+        return
+
+    if reduction_func == "corrwith" and not as_index and index_kind == "range":
+        # corrwith has "a" as a column in the result already
+        msg = "cannot insert a, already exists"
+        with pytest.raises(ValueError, match=msg):
             getattr(gb, reduction_func)(*args)
         return
 
