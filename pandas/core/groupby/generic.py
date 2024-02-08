@@ -1794,7 +1794,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
 
         return path, res
 
-    def filter(self, func, dropna: bool = True, *args, **kwargs):
+    def filter(self, func, dropna: bool = True, *args, **kwargs) -> DataFrame:
         """
         Filter elements from groups that don't satisfy a criterion.
 
@@ -2496,7 +2496,6 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
             lambda df: df.dtypes, self._selected_obj
         )
 
-    @doc(DataFrame.corrwith.__doc__)
     def corrwith(
         self,
         other: DataFrame | Series,
@@ -2504,6 +2503,60 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
         method: CorrelationMethod = "pearson",
         numeric_only: bool = False,
     ) -> DataFrame:
+        """
+        Compute pairwise correlation.
+
+        Pairwise correlation is computed between rows or columns of
+        DataFrame with rows or columns of Series or DataFrame. DataFrames
+        are first aligned along both axes before computing the
+        correlations.
+
+        Parameters
+        ----------
+        other : DataFrame, Series
+            Object with which to compute correlations.
+        drop : bool, default False
+            Drop missing indices from result.
+        method : {'pearson', 'kendall', 'spearman'} or callable
+            Method of correlation:
+
+            * pearson : standard correlation coefficient
+            * kendall : Kendall Tau correlation coefficient
+            * spearman : Spearman rank correlation
+            * callable: callable with input two 1d ndarrays
+                and returning a float.
+
+        numeric_only : bool, default False
+            Include only `float`, `int` or `boolean` data.
+
+            .. versionadded:: 1.5.0
+
+            .. versionchanged:: 2.0.0
+                The default value of ``numeric_only`` is now ``False``.
+
+        Returns
+        -------
+        Series
+            Pairwise correlations.
+
+        See Also
+        --------
+        DataFrame.corr : Compute pairwise correlation of columns.
+
+        Examples
+        --------
+        >>> df1 = pd.DataFrame({"Day": [1, 1, 1, 2, 2, 2, 3, 3, 3],
+        ...                     "Data": [6, 6, 8, 5, 4, 2, 7, 3, 9]})
+        >>> df2 = pd.DataFrame({"Day": [1, 1, 1, 2, 2, 2, 3, 3, 3],
+        ...                     "Data": [5, 3, 8, 3, 1, 1, 2, 3, 6]})
+
+        >>> df1.groupby("Day").corrwith(df2)
+                 Data  Day
+        Day
+        1    0.917663  NaN
+        2    0.755929  NaN
+        3    0.576557  NaN
+        """
         result = self._op_via_apply(
             "corrwith",
             other=other,

@@ -100,10 +100,7 @@ from pandas.errors.cow import (
     _chained_assignment_method_msg,
     _chained_assignment_warning_method_msg,
 )
-from pandas.util._decorators import (
-    deprecate_nonkeyword_arguments,
-    doc,
-)
+from pandas.util._decorators import doc
 from pandas.util._exceptions import find_stack_level
 from pandas.util._validators import (
     check_dtype_backend,
@@ -1158,18 +1155,18 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         ----------
         mapper : scalar, list-like, optional
             Value to set the axis name attribute.
-        index, columns : scalar, list-like, dict-like or function, optional
-            A scalar, list-like, dict-like or functions transformations to
-            apply to that axis' values.
-            Note that the ``columns`` parameter is not allowed if the
-            object is a Series. This parameter only apply for DataFrame
-            type objects.
 
             Use either ``mapper`` and ``axis`` to
             specify the axis to target with ``mapper``, or ``index``
             and/or ``columns``.
+        index : scalar, list-like, dict-like or function, optional
+            A scalar, list-like, dict-like or functions transformations to
+            apply to that axis' values.
+        columns : scalar, list-like, dict-like or function, optional
+            A scalar, list-like, dict-like or functions transformations to
+            apply to that axis' values.
         axis : {0 or 'index', 1 or 'columns'}, default 0
-            The axis to rename. For `Series` this parameter is unused and defaults to 0.
+            The axis to rename.
         copy : bool, default None
             Also copy underlying data.
 
@@ -1190,7 +1187,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
 
         Returns
         -------
-        Series, DataFrame, or None
+        DataFrame, or None
             The same type as the caller or None if ``inplace=True``.
 
         See Also
@@ -1220,21 +1217,6 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
 
         Examples
         --------
-        **Series**
-
-        >>> s = pd.Series(["dog", "cat", "monkey"])
-        >>> s
-        0       dog
-        1       cat
-        2    monkey
-        dtype: object
-        >>> s.rename_axis("animal")
-        animal
-        0    dog
-        1    cat
-        2    monkey
-        dtype: object
-
         **DataFrame**
 
         >>> df = pd.DataFrame({"num_legs": [4, 4, 2],
@@ -2219,9 +2201,6 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
     # I/O Methods
 
     @final
-    @deprecate_nonkeyword_arguments(
-        version="3.0", allowed_args=["self", "excel_writer"], name="to_excel"
-    )
     @doc(
         klass="object",
         storage_options=_shared_docs["storage_options"],
@@ -2236,6 +2215,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
     def to_excel(
         self,
         excel_writer: FilePath | WriteExcelBuffer | ExcelWriter,
+        *,
         sheet_name: str = "Sheet1",
         na_rep: str = "",
         float_format: str | None = None,
@@ -2393,9 +2373,6 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         )
 
     @final
-    @deprecate_nonkeyword_arguments(
-        version="3.0", allowed_args=["self", "path_or_buf"], name="to_json"
-    )
     @doc(
         storage_options=_shared_docs["storage_options"],
         compression_options=_shared_docs["compression_options"] % "path_or_buf",
@@ -2403,6 +2380,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
     def to_json(
         self,
         path_or_buf: FilePath | WriteBuffer[bytes] | WriteBuffer[str] | None = None,
+        *,
         orient: Literal["split", "records", "index", "table", "columns", "values"]
         | None = None,
         date_format: str | None = None,
@@ -2684,12 +2662,10 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         )
 
     @final
-    @deprecate_nonkeyword_arguments(
-        version="3.0", allowed_args=["self", "path_or_buf"], name="to_hdf"
-    )
     def to_hdf(
         self,
         path_or_buf: FilePath | HDFStore,
+        *,
         key: str,
         mode: Literal["a", "w", "r+"] = "a",
         complevel: int | None = None,
@@ -2838,13 +2814,11 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         )
 
     @final
-    @deprecate_nonkeyword_arguments(
-        version="3.0", allowed_args=["self", "name", "con"], name="to_sql"
-    )
     def to_sql(
         self,
         name: str,
         con,
+        *,
         schema: str | None = None,
         if_exists: Literal["fail", "replace", "append"] = "fail",
         index: bool_t = True,
@@ -3064,9 +3038,6 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         )
 
     @final
-    @deprecate_nonkeyword_arguments(
-        version="3.0", allowed_args=["self", "path"], name="to_pickle"
-    )
     @doc(
         storage_options=_shared_docs["storage_options"],
         compression_options=_shared_docs["compression_options"] % "path",
@@ -3074,6 +3045,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
     def to_pickle(
         self,
         path: FilePath | WriteBuffer[bytes],
+        *,
         compression: CompressionOptions = "infer",
         protocol: int = pickle.HIGHEST_PROTOCOL,
         storage_options: StorageOptions | None = None,
@@ -3137,11 +3109,8 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         )
 
     @final
-    @deprecate_nonkeyword_arguments(
-        version="3.0", allowed_args=["self"], name="to_clipboard"
-    )
     def to_clipboard(
-        self, excel: bool_t = True, sep: str | None = None, **kwargs
+        self, *, excel: bool_t = True, sep: str | None = None, **kwargs
     ) -> None:
         r"""
         Copy object to the system clipboard.
@@ -3300,6 +3269,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
     def to_latex(
         self,
         buf: None = ...,
+        *,
         columns: Sequence[Hashable] | None = ...,
         header: bool_t | SequenceNotStr[str] = ...,
         index: bool_t = ...,
@@ -3327,6 +3297,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
     def to_latex(
         self,
         buf: FilePath | WriteBuffer[str],
+        *,
         columns: Sequence[Hashable] | None = ...,
         header: bool_t | SequenceNotStr[str] = ...,
         index: bool_t = ...,
@@ -3351,12 +3322,10 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         ...
 
     @final
-    @deprecate_nonkeyword_arguments(
-        version="3.0", allowed_args=["self", "buf"], name="to_latex"
-    )
     def to_latex(
         self,
         buf: FilePath | WriteBuffer[str] | None = None,
+        *,
         columns: Sequence[Hashable] | None = None,
         header: bool_t | SequenceNotStr[str] = True,
         index: bool_t = True,
@@ -3710,6 +3679,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
     def to_csv(
         self,
         path_or_buf: None = ...,
+        *,
         sep: str = ...,
         na_rep: str = ...,
         float_format: str | Callable | None = ...,
@@ -3737,6 +3707,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
     def to_csv(
         self,
         path_or_buf: FilePath | WriteBuffer[bytes] | WriteBuffer[str],
+        *,
         sep: str = ...,
         na_rep: str = ...,
         float_format: str | Callable | None = ...,
@@ -3761,9 +3732,6 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         ...
 
     @final
-    @deprecate_nonkeyword_arguments(
-        version="3.0", allowed_args=["self", "path_or_buf"], name="to_csv"
-    )
     @doc(
         storage_options=_shared_docs["storage_options"],
         compression_options=_shared_docs["compression_options"] % "path_or_buf",
@@ -3771,6 +3739,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
     def to_csv(
         self,
         path_or_buf: FilePath | WriteBuffer[bytes] | WriteBuffer[str] | None = None,
+        *,
         sep: str = ",",
         na_rep: str = "",
         float_format: str | Callable | None = None,
@@ -6375,9 +6344,6 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         2   2020-01-03
         dtype: datetime64[ns]
         """
-        if copy and using_copy_on_write():
-            copy = False
-
         if is_dict_like(dtype):
             if self.ndim == 1:  # i.e. Series
                 if len(dtype) > 1 or self.name not in dtype:
@@ -6386,7 +6352,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
                         "the key in Series dtype mappings."
                     )
                 new_type = dtype[self.name]
-                return self.astype(new_type, copy, errors)
+                return self.astype(new_type, errors=errors)
 
             # GH#44417 cast to Series so we can use .iat below, which will be
             #  robust in case we
@@ -6408,10 +6374,10 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
             for i, (col_name, col) in enumerate(self.items()):
                 cdt = dtype_ser.iat[i]
                 if isna(cdt):
-                    res_col = col.copy(deep=copy)
+                    res_col = col.copy(deep=False)
                 else:
                     try:
-                        res_col = col.astype(dtype=cdt, copy=copy, errors=errors)
+                        res_col = col.astype(dtype=cdt, errors=errors)
                     except ValueError as ex:
                         ex.args = (
                             f"{ex}: Error while type casting for column '{col_name}'",
@@ -6425,22 +6391,20 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
             if isinstance(dtype, ExtensionDtype) and all(
                 arr.dtype == dtype for arr in self._mgr.arrays
             ):
-                return self.copy(deep=copy)
+                return self.copy(deep=False)
             # GH 18099/22869: columnwise conversion to extension dtype
             # GH 24704: self.items handles duplicate column names
-            results = [
-                ser.astype(dtype, copy=copy, errors=errors) for _, ser in self.items()
-            ]
+            results = [ser.astype(dtype, errors=errors) for _, ser in self.items()]
 
         else:
             # else, only a single dtype is given
-            new_data = self._mgr.astype(dtype=dtype, copy=copy, errors=errors)
+            new_data = self._mgr.astype(dtype=dtype, errors=errors)
             res = self._constructor_from_mgr(new_data, axes=new_data.axes)
             return res.__finalize__(self, method="astype")
 
         # GH 33113: handle empty frame or series
         if not results:
-            return self.copy(deep=None)
+            return self.copy(deep=False)
 
         # GH 19920: retain column metadata after concat
         result = concat(results, axis=1, copy=False)
@@ -10760,7 +10724,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
                     f"does not match PeriodIndex freq "
                     f"{freq_to_period_freqstr(orig_freq.n, orig_freq.name)}"
                 )
-            new_ax = index.shift(periods)
+            new_ax: Index = index.shift(periods)
         else:
             new_ax = index.shift(periods, freq)
 

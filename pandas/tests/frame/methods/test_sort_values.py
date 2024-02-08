@@ -592,7 +592,7 @@ class TestDataFrameSortValues:
         result = expected.sort_values(["A", "date"])
         tm.assert_frame_equal(result, expected)
 
-    def test_sort_values_item_cache(self, using_copy_on_write):
+    def test_sort_values_item_cache(self):
         # previous behavior incorrect retained an invalid _item_cache entry
         df = DataFrame(
             np.random.default_rng(2).standard_normal((4, 3)), columns=["A", "B", "C"]
@@ -603,14 +603,9 @@ class TestDataFrameSortValues:
 
         df.sort_values(by="A")
 
-        if using_copy_on_write:
-            ser.iloc[0] = 99
-            assert df.iloc[0, 0] == df["A"][0]
-            assert df.iloc[0, 0] != 99
-        else:
-            ser.values[0] = 99
-            assert df.iloc[0, 0] == df["A"][0]
-            assert df.iloc[0, 0] == 99
+        ser.iloc[0] = 99
+        assert df.iloc[0, 0] == df["A"][0]
+        assert df.iloc[0, 0] != 99
 
     def test_sort_values_reshaping(self):
         # GH 39426
@@ -862,7 +857,7 @@ class TestSortValuesLevelAsStr:
             )
 
         # Get index levels from df_idx
-        levels = df_idx.index.names
+        levels = list(df_idx.index.names)
 
         # Compute expected by sorting on columns and the setting index
         expected = df_none.sort_values(
@@ -880,7 +875,7 @@ class TestSortValuesLevelAsStr:
         # GH#14353
 
         # Get levels from df_idx
-        levels = df_idx.index.names
+        levels = list(df_idx.index.names)
 
         # Compute expected by sorting on axis=0, setting index levels, and then
         # transposing. For some cases this will result in a frame with
