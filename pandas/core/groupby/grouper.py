@@ -533,7 +533,7 @@ class Grouping:
                 grouping_vector = index_level.map(mapper)
 
         # a passed Grouper like, directly get the grouper in the same way
-        # as single grouper groupby, use the group_info to get codes
+        # as single grouper groupby
         elif isinstance(grouping_vector, Grouper):
             # get the new grouper; we already have disambiguated
             # what key/level refer to exactly, don't need to

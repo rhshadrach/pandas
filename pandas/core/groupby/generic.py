@@ -752,11 +752,13 @@ class SeriesGroupBy(GroupBy[Series]):
         b    1
         dtype: int64
         """
-        ids, ngroups = self._grouper.group_info
+        grouper = self._grouper
+        ids = grouper.ids
+        ngroups = grouper.ngroups
         val = self.obj._values
         codes, uniques = algorithms.factorize(val, use_na_sentinel=dropna, sort=False)
 
-        if self._grouper.has_dropped_na:
+        if grouper.has_dropped_na:
             mask = ids >= 0
             ids = ids[mask]
             codes = codes[mask]
@@ -778,7 +780,7 @@ class SeriesGroupBy(GroupBy[Series]):
         res = np.bincount(ids[~mask], minlength=ngroups)
         res = ensure_int64(res)
 
-        ri = self._grouper.result_index
+        ri = grouper.result_index
         result: Series | DataFrame = self.obj._constructor(
             res, index=ri, name=self.obj.name
         )

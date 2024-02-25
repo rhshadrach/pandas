@@ -625,11 +625,10 @@ class BaseGrouper:
         -------
         Generator yielding subsetted objects
         """
-        ids, ngroups = self.group_info
         return _get_splitter(
             data,
-            ids,
-            ngroups,
+            labels=self.ids,
+            ngroups=self.ngroups,
             sorted_ids=self._sorted_ids,
             sort_idx=self.result_ilocs,
         )
@@ -689,7 +688,8 @@ class BaseGrouper:
         """
         Compute group sizes.
         """
-        ids, ngroups = self.group_info
+        ids = self.ids
+        ngroups = self.ngroups
         out: np.ndarray | list
         if ngroups:
             out = np.bincount(ids[ids != -1], minlength=ngroups)
@@ -725,12 +725,6 @@ class BaseGrouper:
         Whether grouper has null value(s) that are dropped.
         """
         return bool((self.ids < 0).any())
-
-    @cache_readonly
-    def group_info(self) -> tuple[npt.NDArray[np.intp], int]:
-        result_index, ids = self.result_index_and_ids
-        ngroups = len(result_index)
-        return ids, ngroups
 
     @cache_readonly
     def codes_info(self) -> npt.NDArray[np.intp]:
@@ -1013,7 +1007,7 @@ class BinGrouper(BaseGrouper):
     indexer : np.ndarray[np.intp], optional
         the indexer created by Grouper
         some groupers (TimeGrouper) will sort its axis and its
-        group_info is also sorted, so need the indexer to reorder
+        ids is also sorted, so need the indexer to reorder
 
     Examples
     --------
@@ -1022,7 +1016,7 @@ class BinGrouper(BaseGrouper):
         '2005-01-05', '2005-01-07', '2005-01-09'],
         dtype='datetime64[ns]', freq='2D')
 
-    the group_info, which contains the label of each item in grouped
+    the ids, which contains the label of each item in grouped
     axis, the index of label in label list, group number, is
 
     (array([0, 0, 1, 1, 2, 2, 3, 3, 4, 4]), array([0, 1, 2, 3, 4]), 5)
@@ -1107,10 +1101,6 @@ class BinGrouper(BaseGrouper):
                     indices[label] = list(range(i, bin))
                 i = bin
         return indices
-
-    @cache_readonly
-    def group_info(self) -> tuple[npt.NDArray[np.intp], int]:
-        return self.ids, self.ngroups
 
     @cache_readonly
     def codes(self) -> list[npt.NDArray[np.intp]]:

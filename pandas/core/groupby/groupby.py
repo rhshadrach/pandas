@@ -1371,20 +1371,21 @@ class GroupBy(BaseGroupBy[NDFrameT]):
 
     @final
     def _numba_prep(self, data: DataFrame):
-        ids, ngroups = self._grouper.group_info
-        sorted_index = self._grouper.result_ilocs
-        sorted_ids = self._grouper._sorted_ids
+        grouper = self._grouper
+        ngroups = grouper.ngroups
+        sorted_index = grouper.result_ilocs
+        sorted_ids = grouper._sorted_ids
 
         sorted_data = data.take(sorted_index, axis=0).to_numpy()
         # GH 46867
         index_data = data.index
         if isinstance(index_data, MultiIndex):
-            if len(self._grouper.groupings) > 1:
+            if len(grouper.groupings) > 1:
                 raise NotImplementedError(
                     "Grouping with more than 1 grouping labels and "
                     "a MultiIndex is not supported with engine='numba'"
                 )
-            group_key = self._grouper.groupings[0].name
+            group_key = grouper.groupings[0].name
             index_data = index_data.get_level_values(group_key)
         sorted_index_data = index_data.take(sorted_index).to_numpy()
 
@@ -1965,8 +1966,9 @@ class GroupBy(BaseGroupBy[NDFrameT]):
         this is currently implementing sort=False
         (though the default is sort=True) for groupby in general
         """
-        ids, ngroups = self._grouper.group_info
-        sorter = get_group_index_sorter(ids, ngroups)
+        grouper = self._grouper
+        ids = grouper.ids
+        sorter = get_group_index_sorter(ids, grouper.ngroups)
         ids, count = ids[sorter], len(ids)
 
         if count == 0:
@@ -1981,7 +1983,7 @@ class GroupBy(BaseGroupBy[NDFrameT]):
         else:
             out = np.repeat(out[np.r_[run[1:], True]], rep) - out
 
-        if self._grouper.has_dropped_na:
+        if grouper.has_dropped_na:
             out = np.where(ids == -1, np.nan, out.astype(np.float64, copy=False))
         else:
             out = out.astype(np.int64, copy=False)
@@ -2181,7 +2183,9 @@ class GroupBy(BaseGroupBy[NDFrameT]):
         Freq: MS, dtype: int64
         """
         data = self._get_data_to_aggregate()
-        ids, ngroups = self._grouper.group_info
+        grouper = self._grouper
+        ids = grouper.ids
+        ngroups = grouper.ngroups
         mask = ids != -1
 
         is_series = data.ndim == 1
@@ -3838,7 +3842,9 @@ class GroupBy(BaseGroupBy[NDFrameT]):
         if limit is None:
             limit = -1
 
-        ids, ngroups = self._grouper.group_info
+        grouper = self._grouper
+        ids = grouper.ids
+        ngroups = grouper.ngroups
 
         col_func = partial(
             libgroupby.group_fillna_indexer,
@@ -3860,7 +3866,7 @@ class GroupBy(BaseGroupBy[NDFrameT]):
                 #  np.take_along_axis
                 if isinstance(values, np.ndarray):
                     dtype = values.dtype
-                    if self._grouper.has_dropped_na:
+                    if grouper.has_dropped_na:
                         # dropped null groups give rise to nan in the result
                         dtype = ensure_dtype_can_hold_na(values.dtype)
                     out = np.empty(values.shape, dtype=dtype)
@@ -4258,9 +4264,10 @@ class GroupBy(BaseGroupBy[NDFrameT]):
         a    2.0
         b    3.0
         """
+        grouper = self._grouper
         mgr = self._get_data_to_aggregate(numeric_only=numeric_only, name="quantile")
         obj = self._wrap_agged_manager(mgr)
-        splitter = self._grouper._get_splitter(obj)
+        splitter = grouper._get_splitter(obj)
         sdata = splitter._sorted_data
 
         starts, ends = lib.generate_slices(splitter._slabels, splitter.ngroups)
@@ -4367,7 +4374,8 @@ class GroupBy(BaseGroupBy[NDFrameT]):
             qs = np.array([q], dtype=np.float64)
             pass_qs = None
 
-        ids, ngroups = self._grouper.group_info
+        ids = grouper.ids
+        ngroups = grouper.ngroups
         if self.dropna:
             # splitter drops NA groups, we need to do the same
             ids = ids[ids >= 0]
@@ -5039,7 +5047,9 @@ class GroupBy(BaseGroupBy[NDFrameT]):
             else:
                 if fill_value is lib.no_default:
                     fill_value = None
-                ids, ngroups = self._grouper.group_info
+                grouper = self._grouper
+                ids = grouper.ids
+                ngroups = grouper.ngroups
                 res_indexer = np.zeros(len(ids), dtype=np.int64)
 
                 libgroupby.group_shift_indexer(res_indexer, ids, ngroups, period)
