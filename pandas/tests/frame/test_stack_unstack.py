@@ -1419,7 +1419,11 @@ def test_stack_timezone_aware_values(future_stack):
 def test_stack_empty_frame(dropna, future_stack):
     # GH 36113
     levels = [np.array([], dtype=np.int64), np.array([], dtype=np.int64)]
-    expected = Series(dtype=np.float64, index=MultiIndex(levels=levels, codes=[[], []]))
+    if future_stack:
+        index = None
+    else:
+        index = MultiIndex(levels=levels, codes=[[], []])
+    expected = Series(dtype=np.float64, index=index)
     if future_stack and dropna is not lib.no_default:
         with pytest.raises(ValueError, match="dropna must be unspecified"):
             DataFrame(dtype=np.float64).stack(dropna=dropna, future_stack=future_stack)
@@ -1432,14 +1436,32 @@ def test_stack_empty_frame(dropna, future_stack):
 
 @pytest.mark.filterwarnings("ignore:The previous implementation of stack is deprecated")
 @pytest.mark.parametrize("dropna", [True, False, lib.no_default])
+def test_stack_empty_frame(dropna, future_stack):
+    # GH 36113
+    if future_stack and dropna is not lib.no_default:
+        with pytest.raises(ValueError, match="dropna must be unspecified"):
+            DataFrame(dtype=np.int64).stack(
+                dropna=dropna, future_stack=future_stack
+            )
+    else:
+        result = (
+            DataFrame(dtype=np.int64)
+            .stack(dropna=dropna, future_stack=future_stack)
+        )
+        expected = Series(dtype=np.int64)
+        tm.assert_series_equal(result, expected)
+
+@pytest.mark.filterwarnings("ignore:The previous implementation of stack is deprecated")
+@pytest.mark.parametrize("dropna", [True, False, lib.no_default])
 @pytest.mark.parametrize("fill_value", [None, 0])
-def test_stack_unstack_empty_frame(dropna, fill_value, future_stack):
+def test_unstack_empty_frame(dropna, fill_value, future_stack):
     # GH 36113
     if future_stack and dropna is not lib.no_default:
         with pytest.raises(ValueError, match="dropna must be unspecified"):
             DataFrame(dtype=np.int64).stack(
                 dropna=dropna, future_stack=future_stack
             ).unstack(fill_value=fill_value)
+
     else:
         result = (
             DataFrame(dtype=np.int64)
@@ -1448,6 +1470,67 @@ def test_stack_unstack_empty_frame(dropna, fill_value, future_stack):
         )
         expected = DataFrame(dtype=np.int64)
         tm.assert_frame_equal(result, expected)
+
+
+@pytest.mark.parametrize("fill_value", [None, 0, True, "a"])
+def test_unstack_no_columns_index(fill_value):
+    df = pd.DataFrame(index=Index([0, 1], name="a"))
+    dtype = {None: "float64", 0: "int64", True: "bool", "a": "object"}[fill_value]
+    # Need inferred_dtype to be int
+    expected_index = Index([0], name="a")[:0]
+    expected = Series(dtype=dtype, index=expected_index)
+    result = df.unstack(fill_value=fill_value)
+    tm.assert_equal(result, expected)
+
+
+@pytest.mark.parametrize("level", [0, 1, [0, 1]])
+@pytest.mark.parametrize("fill_value", [None, 0, True, "a"])
+def test_unstack_no_columns_multiindex(level, fill_value):
+    index = MultiIndex(
+        levels=[[1, 2], [3, 4, 5]],
+        codes=[[0, 0, 1], [0, 1, 2]],
+        names=["a", "b"],
+    )
+    df = pd.DataFrame(index=index)
+    expected_value = np.nan if fill_value is None else fill_value
+    if level == 0:
+        expected = DataFrame(expected_value, index=index.levels[1], columns=index.levels[0])
+    elif level == 1:
+        expected = DataFrame(expected_value, index=index.levels[0], columns=index.levels[1])
+    else:
+        dtype = {None: "float64", 0: "int64", True: "bool", "a": "object"}[fill_value]
+        expected = Series(dtype=dtype)
+    result = df.unstack(level=level, fill_value=fill_value)
+    tm.assert_equal(result, expected)
+
+
+@pytest.mark.parametrize("fill_value", [None, 0, True, "a"])
+def test_unstack_no_rows_index(fill_value):
+    df = pd.DataFrame(index=Index([], name="a"), columns=Index(["x", "y", "z"], name="w"))
+    dtype = {None: "float64", 0: "int64", True: "bool", "a": "object"}[fill_value]
+    # Need inferred_dtype to be empty
+    expected = pd.Series(index=Index([]), dtype=dtype)
+    result = df.unstack(fill_value=fill_value)
+    tm.assert_equal(result, expected)
+
+@pytest.mark.parametrize("level", [0, 1, [0, 1]])
+@pytest.mark.parametrize("fill_value", [None, 0, True, "a"])
+def test_unstack_no_rows_multiindex(level, fill_value):
+    index = MultiIndex(
+        levels=[[], []],
+        codes=[[], []],
+        names=["a", "b"],
+    )
+    df = pd.DataFrame(index=index, columns=["x", "y", "z"])
+    if level == [0, 1]:
+        dtype = {None: "float64", 0: "int64", True: "bool", "a": "object"}[fill_value]
+        expected = Series(dtype=dtype)
+    else:
+        name = "b" if level == 0 else "a"
+        expected = DataFrame(index=Index([], name=name), columns=["x", "y", "z"])
+
+    result = df.unstack(level=level, fill_value=fill_value)
+    tm.assert_equal(result, expected)
 
 
 def test_unstack_single_index_series():

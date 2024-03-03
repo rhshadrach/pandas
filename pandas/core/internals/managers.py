@@ -61,6 +61,7 @@ from pandas.core.dtypes.missing import (
     array_equals,
     isna,
 )
+from pandas.core.dtypes.inference import get_numpy_dtype_for_object
 
 import pandas.core.algorithms as algos
 from pandas.core.arrays import DatetimeArray
@@ -1731,27 +1732,38 @@ class BlockManager(libinternals.BlockManager, BaseBlockManager):
             assert fac == int(fac)
             factor = int(fac)
 
-        for blk in self.blocks:
-            mgr_locs = blk.mgr_locs
-            new_placement = mgr_locs.tile_for_unstack(factor)
+        if len(self.blocks) == 0:
+            if fill_value is None:
+                new_values = np.empty((len(new_columns), len(new_index)), dtype="float64")
+                new_values[:] = np.nan
+            else:
+                dtype = get_numpy_dtype_for_object(fill_value)
+                new_values = np.empty((len(new_columns), len(new_index)), dtype=dtype)
+                new_values[:] = fill_value
+            block_placement = BlockPlacement(slice(len(new_columns)))
+            new_blocks.append(new_block_2d(new_values, placement=block_placement))
+        else:
+            for blk in self.blocks:
+                mgr_locs = blk.mgr_locs
+                new_placement = mgr_locs.tile_for_unstack(factor)
 
-            blocks, mask = blk._unstack(
-                unstacker,
-                fill_value,
-                new_placement=new_placement,
-                needs_masking=needs_masking,
-            )
+                blocks, mask = blk._unstack(
+                    unstacker,
+                    fill_value,
+                    new_placement=new_placement,
+                    needs_masking=needs_masking,
+                )
 
-            new_blocks.extend(blocks)
-            columns_mask.extend(mask)
+                new_blocks.extend(blocks)
+                columns_mask.extend(mask)
 
-            # Block._unstack should ensure this holds,
-            assert mask.sum() == sum(len(nb._mgr_locs) for nb in blocks)
-            # In turn this ensures that in the BlockManager call below
-            #  we have len(new_columns) == sum(x.shape[0] for x in new_blocks)
-            #  which suffices to allow us to pass verify_inegrity=False
+                # Block._unstack should ensure this holds,
+                assert mask.sum() == sum(len(nb._mgr_locs) for nb in blocks)
+                # In turn this ensures that in the BlockManager call below
+                #  we have len(new_columns) == sum(x.shape[0] for x in new_blocks)
+                #  which suffices to allow us to pass verify_inegrity=False
 
-        new_columns = new_columns[columns_mask]
+            new_columns = new_columns[columns_mask]
 
         bm = BlockManager(new_blocks, [new_columns, new_index], verify_integrity=False)
         return bm

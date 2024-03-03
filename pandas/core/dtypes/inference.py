@@ -6,7 +6,7 @@ from collections import abc
 from numbers import Number
 import re
 from re import Pattern
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -436,3 +436,10 @@ def is_dataclass(item: object) -> bool:
         return dataclasses.is_dataclass(item) and not isinstance(item, type)
     except ImportError:
         return False
+
+
+def get_numpy_dtype_for_object(value: Any) -> str:
+    arr = np.array([value], dtype="object")
+    converted = lib.maybe_convert_objects(arr)
+    result = str(converted.dtype)
+    return result

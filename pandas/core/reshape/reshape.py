@@ -29,6 +29,7 @@ from pandas.core.dtypes.common import (
 )
 from pandas.core.dtypes.dtypes import ExtensionDtype
 from pandas.core.dtypes.missing import notna
+from pandas.core.dtypes.inference import get_numpy_dtype_for_object
 
 import pandas.core.algorithms as algos
 from pandas.core.algorithms import (
@@ -255,7 +256,10 @@ class _Unstacker:
         # place the values
         length, width = self.full_shape
         stride = values.shape[1]
-        result_width = width * stride
+        if width == 0:
+            result_width = stride
+        else:
+            result_width = width * stride
         result_shape = (length, result_width)
         mask = self.mask
         mask_all = self.mask_all
@@ -339,6 +343,12 @@ class _Unstacker:
 
         new_levels: tuple[Index, ...]
 
+        if value_columns.empty:
+            result = self.removed_level_full
+            return result
+        if len(propagator) == 0:
+            result = value_columns
+            return result
         if isinstance(value_columns, MultiIndex):
             new_levels = value_columns.levels + (self.removed_level_full,)
             new_names = value_columns.names + (self.removed_name,)
@@ -470,16 +480,23 @@ def _unstack_multiple(
             unstcols = unstacked.index
         else:
             unstcols = unstacked.columns
-        assert isinstance(unstcols, MultiIndex)  # for mypy
-        new_levels = [unstcols.levels[0]] + clevels
+        # assert isinstance(unstcols, MultiIndex)  # for mypy
+        if isinstance(unstcols, MultiIndex):
+            new_levels = [unstcols.levels[0]] + clevels
+            new_codes = [unstcols.codes[0]]
+            new_codes.extend(rec.take(unstcols.codes[-1]) for rec in recons_codes)
+        else:
+            new_levels = [unstcols] + clevels
+            new_codes = [factorize(unstcols, use_na_sentinel=False)[0]]
+            new_codes.extend(rec.take(new_codes[0]) for rec in recons_codes)
         new_names = [data.columns.name] + cnames
 
-        new_codes = [unstcols.codes[0]]
-        new_codes.extend(rec.take(unstcols.codes[-1]) for rec in recons_codes)
-
-    new_columns = MultiIndex(
-        levels=new_levels, codes=new_codes, names=new_names, verify_integrity=False
-    )
+    if len(new_codes[0]) == 0:
+        new_columns = RangeIndex(0)
+    else:
+        new_columns = MultiIndex(
+            levels=new_levels, codes=new_codes, names=new_names, verify_integrity=False
+        )
 
     if isinstance(unstacked, Series):
         unstacked.index = new_columns
@@ -520,14 +537,29 @@ def unstack(
         if isinstance(obj.index, MultiIndex):
             return _unstack_frame(obj, level, fill_value=fill_value, sort=sort)
         else:
-            return obj.T.stack()
+            result = obj.T.stack()
+            if result.empty:
+                # When unstacking a non-MultiIndex, we'll never have to fill values.
+                # But if the input frame has no columns, we wind up with an empty
+                # Series and need to get the dtype right.
+                if fill_value is None:
+                    result = result.astype("float64")
+                else:
+                    result = result.astype(get_numpy_dtype_for_object(fill_value))
+            return result
     elif not isinstance(obj.index, MultiIndex):
         # GH 36113
         # Give nicer error messages when unstack a Series whose
         # Index is not a MultiIndex.
-        raise ValueError(
-            f"index must be a MultiIndex to unstack, {type(obj.index)} was passed"
-        )
+        # raise ValueError(
+        #     f"index must be a MultiIndex to unstack, {type(obj.index)} was passed"
+        # )
+        if isinstance(obj, Series):
+            return obj
+        elif isinstance(obj.columns, MultiIndex):
+            return obj.stack(levels=obj.columns.nlevels)
+        else:
+            return obj.stack()
     else:
         if is_1d_only_ea_dtype(obj.dtype):
             return _unstack_extension_series(obj, level, fill_value, sort=sort)
@@ -990,12 +1022,35 @@ def stack_v3(frame: DataFrame, level: list[int]) -> Series | DataFrame:
         column_levels = (ordered_stack_cols.unique(),)
         column_codes = (factorize(ordered_stack_cols_unique, use_na_sentinel=False)[0],)
     column_codes = tuple(np.repeat(codes, len(frame)) for codes in column_codes)
-    result.index = MultiIndex(
-        levels=index_levels + column_levels,
-        codes=index_codes + column_codes,
-        names=frame.index.names + ordered_stack_cols.names,
-        verify_integrity=False,
-    )
+
+    # If any level is empty, all must be empty, so it suffices to check the first one
+    if index_levels[0].empty:
+        if len(column_levels) == 1:
+            result.index = Index(column_levels[0].take(column_codes[0]))
+        else:
+            result.index = MultiIndex(
+                levels=column_levels,
+                codes=column_codes,
+                names=ordered_stack_cols.names,
+                verify_integrity=False,
+            )
+    elif column_levels[0].empty:
+        if len(index_levels) == 1:
+            result.index = Index(index_levels[0].take(index_codes[0]))
+        else:
+            result.index = MultiIndex(
+                levels=index_levels,
+                codes=index_codes,
+                names=frame.index.names,
+                verify_integrity=False,
+            )
+    else:
+        result.index = MultiIndex(
+            levels=index_levels + column_levels,
+            codes=index_codes + column_codes,
+            names=frame.index.names + ordered_stack_cols.names,
+            verify_integrity=False,
+        )
 
     # sort result, but faster than calling sort_index since we know the order we need
     len_df = len(frame)
