@@ -1967,3 +1967,39 @@ def np_can_cast_scalar(element: Scalar, dtype: np.dtype) -> bool:
         return True
     except (LossySetitemError, NotImplementedError):
         return False
+
+
+def floating_op_result_dtype(dtype: DtypeObj) -> DtypeObj:
+    import decimal
+
+    if (
+        is_string_dtype(dtype)
+        or isinstance(dtype, (IntervalDtype, CategoricalDtype))
+        or dtype.kind == "b"
+        or dtype.type is bytes
+    ):
+        raise TypeError(f"dtype {dtype} not supported in operation")
+    if isinstance(dtype, ExtensionDtype):
+        from pandas.core.dtypes.dtypes import SparseDtype
+
+        from pandas.core.arrays.numeric import NumericDtype
+
+        if isinstance(dtype, NumericDtype) and dtype.kind in "iufb":
+            from pandas.core.arrays.floating import Float64Dtype
+
+            return Float64Dtype()
+        elif (
+            isinstance(dtype, ArrowDtype)
+            and dtype.kind in "iufb"
+            or dtype.type is decimal.Decimal
+        ):
+            import pyarrow as pa
+
+            return ArrowDtype(pa.float64())
+        elif isinstance(dtype, IntervalDtype):
+            return IntervalDtype(np.float64, closed=dtype.closed)
+        elif isinstance(dtype, SparseDtype):
+            return SparseDtype(np.float64)
+    elif dtype.kind in "iufb":
+        return np.dtype(np.float64)
+    return dtype

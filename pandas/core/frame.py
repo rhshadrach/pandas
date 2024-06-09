@@ -13046,6 +13046,33 @@ class DataFrame(NDFrame, OpsMixin):
         """
         validate_percentile(q)
         axis = self._get_axis_number(axis)
+        is_list_like_q = is_list_like(q)
+        data = self._get_numeric_data() if numeric_only else self
+
+        if data.empty:
+            if not is_list_like_q:
+                # Use median to get the right shape / dtype
+                median_result = data.median(axis=axis, numeric_only=numeric_only)
+                result = median_result.rename(q)
+            else:
+                if axis == 0 or data.shape[0] > 0:
+                    # TODO: This looks wrong for axis == 1 when there are no columns
+                    from pandas.core.dtypes.cast import floating_op_result_dtype
+
+                    from pandas import array
+
+                    values = len(q) * [None]
+                    result = data._constructor(
+                        {
+                            idx: array(values, dtype=floating_op_result_dtype(dtype))
+                            for idx, dtype in enumerate(data.dtypes)
+                        },
+                        index=q,
+                    )
+                    result.columns = data.columns
+                else:
+                    result = data._constructor(index=q)
+            return result
 
         if not is_list_like(q):
             # BlockManager.quantile expects listlike, so we wrap and unwrap here
@@ -13071,7 +13098,6 @@ class DataFrame(NDFrame, OpsMixin):
             return res
 
         q = Index(q, dtype=np.float64)
-        data = self._get_numeric_data() if numeric_only else self
 
         if axis == 1:
             data = data.T

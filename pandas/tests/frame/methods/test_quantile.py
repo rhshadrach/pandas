@@ -394,7 +394,7 @@ class TestDataFrameQuantile:
         res = df.quantile(
             0.5, axis=1, numeric_only=False, interpolation=interpolation, method=method
         )
-        expected = Series([], index=[], name=0.5, dtype=dtype)
+        expected = Series([], name=0.5, dtype=dtype)
         tm.assert_series_equal(res, expected)
 
         # no columns in result, so no dtype preservation
@@ -405,7 +405,7 @@ class TestDataFrameQuantile:
             interpolation=interpolation,
             method=method,
         )
-        expected = DataFrame(index=[0.5], columns=[])
+        expected = DataFrame(index=[0.5])
         tm.assert_frame_equal(res, expected)
 
     @pytest.mark.parametrize("invalid", [-1, 2, [0.5, -1], [0.5, 2]])
@@ -655,11 +655,11 @@ class TestDataFrameQuantile:
         tm.assert_frame_equal(res, exp)
 
         res = df.quantile(0.5, axis=1, interpolation=interpolation, method=method)
-        exp = Series([], index=[], dtype="float64", name=0.5)
+        exp = Series([], dtype="float64", name=0.5)
         tm.assert_series_equal(res, exp)
 
         res = df.quantile([0.5], axis=1, interpolation=interpolation, method=method)
-        exp = DataFrame(columns=[], index=[0.5])
+        exp = DataFrame(index=[0.5])
         tm.assert_frame_equal(res, exp)
 
     def test_quantile_empty_no_rows_ints(self, interp_method):
@@ -691,7 +691,8 @@ class TestDataFrameQuantile:
         exp = exp.astype(object)
         if interpolation == "nearest":
             # GH#18463 TODO: would we prefer NaTs here?
-            exp = exp.fillna(np.nan)
+            exp = exp.fillna(pd.NaT)
+        print(exp.dtype)
         tm.assert_series_equal(res, exp)
 
         # both dt64tz
@@ -710,14 +711,14 @@ class TestDataFrameQuantile:
         result = df.quantile(
             0.5, numeric_only=True, interpolation=interpolation, method=method
         )
-        expected = Series([], index=[], name=0.5, dtype=np.float64)
+        expected = Series([], name=0.5, dtype=np.float64)
         expected.index.name = "captain tightpants"
         tm.assert_series_equal(result, expected)
 
         result = df.quantile(
             [0.5], numeric_only=True, interpolation=interpolation, method=method
         )
-        expected = DataFrame([], index=[0.5], columns=[])
+        expected = DataFrame([], index=[0.5])
         expected.columns.name = "captain tightpants"
         tm.assert_frame_equal(result, expected)
 
@@ -872,8 +873,8 @@ class TestQuantileExtensionDtype:
     @pytest.mark.parametrize(
         "dtype, expected_data, expected_index, axis",
         [
-            ["float64", [], [], 1],
-            ["int64", [], [], 1],
+            ["float64", [], None, 1],
+            ["int64", [], None, 1],
             ["float64", [np.nan, np.nan], ["a", "b"], 0],
             ["int64", [np.nan, np.nan], ["a", "b"], 0],
         ],
@@ -883,14 +884,14 @@ class TestQuantileExtensionDtype:
         df = DataFrame(columns=["a", "b"], dtype=dtype)
         result = df.quantile(0.5, axis=axis)
         expected = Series(
-            expected_data, name=0.5, index=Index(expected_index), dtype="float64"
+            expected_data, name=0.5, index=expected_index, dtype="float64"
         )
         tm.assert_series_equal(result, expected)
 
     @pytest.mark.parametrize(
         "dtype, expected_data, expected_index, axis, expected_dtype",
         [
-            ["datetime64[ns]", [], [], 1, "datetime64[ns]"],
+            ["datetime64[ns]", [], None, 1, "datetime64[ns]"],
             ["datetime64[ns]", [pd.NaT, pd.NaT], ["a", "b"], 0, "datetime64[ns]"],
         ],
     )
@@ -901,7 +902,7 @@ class TestQuantileExtensionDtype:
         df = DataFrame(columns=["a", "b"], dtype=dtype)
         result = df.quantile(0.5, axis=axis, numeric_only=False)
         expected = Series(
-            expected_data, name=0.5, index=Index(expected_index), dtype=expected_dtype
+            expected_data, name=0.5, index=expected_index, dtype=expected_dtype
         )
         tm.assert_series_equal(result, expected)
 

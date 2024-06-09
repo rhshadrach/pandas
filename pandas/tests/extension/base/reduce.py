@@ -129,3 +129,56 @@ class BaseReduceTests:
             pytest.skip(f"Reduction {op_name} not supported for this dtype")
 
         self.check_reduce_frame(ser, op_name, skipna)
+
+    def test_quantile_empty(self, data):
+        from pandas.tests.extension.decimal import DecimalArray
+
+        # Ensure quantile with empty data agrees with the output when there is data
+        # including raising errors.
+        df_empty = pd.DataFrame({"a": pd.array([], dtype=data.dtype)})
+        df_full = pd.DataFrame({"a": pd.array(data)})
+        try:
+            result_full = df_full.quantile([0.25, 0.5])
+            raises = False
+        except Exception:
+            raises = True
+
+        from pandas.core.dtypes.common import is_object_dtype
+
+        if is_object_dtype(data.dtype):
+            import numpy as np
+
+            # Object dtype can raise depending on values, empty should return NaNs
+            expected = pd.DataFrame(
+                np.nan, index=[0.25, 0.5], columns=["a"], dtype=data.dtype
+            )
+            result = df_empty.quantile([0.25, 0.5])
+            tm.assert_frame_equal(result, expected)
+        elif isinstance(data, DecimalArray):
+            pytest.skip("df_full fails but should succeed")
+        elif raises:
+            import re
+
+            from pandas.tests.extension.decimal import DecimalArray
+            from pandas.tests.extension.json import JSONArray
+
+            if isinstance(data, (JSONArray, DecimalArray)):
+                # External EAs are passed through dtype checks, raise their own errors
+                klass = Exception
+                msg = ".*"
+            else:
+                klass = TypeError
+                msg = re.escape(f"dtype {data.dtype} not supported in operation")
+            with pytest.raises(klass, match=msg):
+                df_empty.quantile([0.25, 0.5])
+        else:
+            if data.dtype == "Float32":
+                # TODO: This should be fixed
+                result_dtype = "Float64" if data._hasna else "Float32"
+            else:
+                result_dtype = result_full["a"].dtype
+            expected = pd.DataFrame(
+                None, index=[0.25, 0.5], columns=["a"], dtype=result_dtype
+            )
+            result = df_empty.quantile([0.25, 0.5])
+            tm.assert_frame_equal(result, expected)
