@@ -59,6 +59,7 @@ class TestStringsWithWrongPlacedWhitespace:
         )
         assert result == []
 
+    # fmt: off
     @pytest.mark.parametrize(
         "data, expected",
         [
@@ -227,6 +228,7 @@ class TestStringsWithWrongPlacedWhitespace:
             validate_unwanted_patterns.strings_with_wrong_placed_whitespace(fd)
         )
         assert result == expected
+    # fmt: on
 
 
 class TestNoDefaultUsedNotOnlyForTyping:

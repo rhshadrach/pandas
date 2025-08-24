@@ -276,7 +276,8 @@ def strings_with_wrong_placed_whitespace(
     for first_token, second_token, third_token in zip(tokens, tokens[1:], tokens[2:]):
         # Checking if we are in a block of concated string
         if (
-            first_token.type == third_token.type == token.STRING
+            first_token.type in [token.STRING, token.FSTRING_END]
+            and third_token.type in [token.STRING, token.FSTRING_START]
             and second_token.type == token.NL
         ):
             # Striping the quotes, with the string literal prefix
