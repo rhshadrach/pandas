@@ -361,7 +361,7 @@ def qcut(
     array([0, 0, 1, 2, 3])
     """
     if isinstance(x, Expression):
-        return x._pass_expr(
+        return x._call_from_func(
             qcut, x=x, q=q, labels=labels, retbins=retbins, precision=precision
         )
     original = x
