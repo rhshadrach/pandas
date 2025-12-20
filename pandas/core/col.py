@@ -198,10 +198,33 @@ class Expression:
 
         return Expression(func, repr_str)
 
+    def __getitem__(self, item: Any) -> Expression:
+        return self._with_binary_op("__getitem__", item)
+
+    def _pass_expr(self, func, **kwargs) -> Expression:
+        def wrapped(df: DataFrame) -> Any:
+            parsed_kwargs = _parse_kwargs(df, **kwargs)
+            return func(**parsed_kwargs)
+
+        args_str = _pretty_print_args_kwargs(**kwargs)
+        repr_str = func.__name__ + "(" + args_str + ")"
+
+        return Expression(wrapped, repr_str)
+
     # Everything else
     def __getattr__(self, attr: str, /) -> Any:
         if attr in Series._accessors:
             return NamespaceExpression(self, attr)
+
+        method = getattr(Series, attr, None)
+        if method is not None and isinstance(method, property):
+
+            def func(df: DataFrame) -> Any:
+                return getattr(self(df), attr)
+
+            repr_str = f"{self._repr_str}.{attr}"
+
+            return Expression(lambda df: func(df), repr_str)
 
         def func(df: DataFrame, *args: Any, **kwargs: Any) -> Any:
             parsed_args = _parse_args(df, *args)
