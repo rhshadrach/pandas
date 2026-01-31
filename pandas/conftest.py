@@ -2123,7 +2123,7 @@ def using_python_scalars() -> bool:
 
 
 @pytest.fixture
-def using_groupby_agg_extension() -> bool:
+def using_groupby_agg_expansion() -> bool:
     """
     Fixture to check if infer string option is enabled.
     """

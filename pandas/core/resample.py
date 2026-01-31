@@ -15,6 +15,8 @@ import warnings
 
 import numpy as np
 
+from pandas._config import get_option
+
 from pandas._libs import lib
 from pandas._libs.tslibs import (
     BaseOffset,
@@ -550,6 +552,8 @@ class Resampler(BaseGroupBy, PandasObject):
         2013-01-01 00:00:02      3.5      7
         2013-01-01 00:00:04      5.0      5
         """
+        if not get_option("future.groupby_agg_expansion"):
+            return self.agg(func, *args, **kwargs)
         result = ResamplerWindowApply(self, func, args=args, kwargs=kwargs).agg()
         if result is None:
             how = func
@@ -689,13 +693,14 @@ class Resampler(BaseGroupBy, PandasObject):
         grouped = get_groupby(obj, by=None, grouper=grouper, group_keys=self.group_keys)
 
         try:
+            # TODO: Try disabling this
             if callable(how):
                 # TODO: test_resample_apply_with_additional_args fails if we go
                 #  through the non-lambda path, not clear that it should.
                 func = lambda x: how(x, *args, **kwargs)
-                result = grouped._agg_for_resample(func)
+                result = grouped.agg(func)
             else:
-                result = grouped._agg_for_resample(how, *args, **kwargs)
+                result = grouped.agg(how, *args, **kwargs)
         except (AttributeError, KeyError):
             # we have a non-reducing function; try to evaluate
             # alternatively we want to evaluate only a column of the input

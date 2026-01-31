@@ -1687,7 +1687,9 @@ class GroupBy(BaseGroupBy[NDFrameT]):
             data after applying f
         """
         values, mutated = self._grouper.apply_groupwise(f, data)
-        if not_indexed_same is None:
+        if is_agg:
+            not_indexed_same = True
+        elif not_indexed_same is None:
             not_indexed_same = mutated
 
         return self._wrap_applied_output(

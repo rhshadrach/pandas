@@ -1196,77 +1196,97 @@ class TestPivotTable:
 
         tm.assert_frame_equal(result, expected)
 
-    def test_margins_no_values_no_cols(self, data):
+    def test_margins_no_values_no_cols(self, using_groupby_agg_expansion, data):
         # Regression test on pivot table: no values or cols passed.
         result = data[["A", "B"]].pivot_table(
             index=["A", "B"], aggfunc=len, margins=True
         )
-        expected = DataFrame(
-            index=MultiIndex(
-                levels=[["bar", "foo", "All"], ["one", "two", ""]],
-                codes=[[0, 0, 1, 1, 2], [0, 1, 0, 1, 2]],
-                names=["A", "B"],
-            ),
-            columns=Index([]),
-        )
-        tm.assert_frame_equal(result, expected)
+        if using_groupby_agg_expansion:
+            expected = DataFrame(
+                index=MultiIndex(
+                    levels=[["bar", "foo", "All"], ["one", "two", ""]],
+                    codes=[[0, 0, 1, 1, 2], [0, 1, 0, 1, 2]],
+                    names=["A", "B"],
+                ),
+                columns=Index([], dtype="str"),
+            )
+            tm.assert_frame_equal(result, expected)
+        else:
+            result_list = result.tolist()
+            assert sum(result_list[:-1]) == result_list[-1]
 
-    def test_margins_no_values_two_rows(self, data):
+    def test_margins_no_values_two_rows(self, using_groupby_agg_expansion, data):
         # Regression test on pivot table: no values passed but rows are a
         # multi-index
         result = data[["A", "B", "C"]].pivot_table(
             index=["A", "B"], columns="C", aggfunc=len, margins=True
         )
-        expected = DataFrame(
-            index=MultiIndex(
-                levels=[["bar", "foo", "All"], ["one", "two", ""]],
-                codes=[[0, 0, 1, 1, 2], [0, 1, 0, 1, 2]],
-                names=["A", "B"],
-            ),
-            columns=MultiIndex(
-                levels=[[], ["dull", "shiny"]],
-                codes=[[], []],
-                names=[None, "C"],
-            ),
-        )
-        tm.assert_frame_equal(result, expected)
+        if using_groupby_agg_expansion:
+            expected = DataFrame(
+                index=MultiIndex(
+                    levels=[["bar", "foo", "All"], ["one", "two", ""]],
+                    codes=[[0, 0, 1, 1, 2], [0, 1, 0, 1, 2]],
+                    names=["A", "B"],
+                ),
+                columns=MultiIndex(
+                    levels=[pd.array([], dtype="str"), ["dull", "shiny"]],
+                    codes=[[], []],
+                    names=[None, "C"],
+                ),
+            )
+            tm.assert_frame_equal(result, expected)
+        else:
+            assert result.All.tolist() == [3.0, 1.0, 4.0, 3.0, 11.0]
 
-    def test_margins_no_values_one_row_one_col(self, data):
+    def test_margins_no_values_one_row_one_col(self, using_groupby_agg_expansion, data):
         # Regression test on pivot table: no values passed but row and col
         # defined
         result = data[["A", "B"]].pivot_table(
             index="A", columns="B", aggfunc=len, margins=True
         )
-        expected = DataFrame(
-            index=Index(["bar", "foo", "All"], name="A"),
-            columns=MultiIndex(
-                levels=[[], ["dull", "shiny"]],
-                codes=[[], []],
-                names=[None, "B"],
-            ),
-        )
-        tm.assert_frame_equal(result, expected)
+        if using_groupby_agg_expansion:
+            expected = DataFrame(
+                index=Index(["bar", "foo", "All"], name="A"),
+                columns=MultiIndex(
+                    levels=[pd.array([], dtype="str"), ["dull", "shiny"]],
+                    codes=[[], []],
+                    names=[None, "B"],
+                ),
+            )
+            tm.assert_frame_equal(result, expected)
+        else:
+            assert result.All.tolist() == [4.0, 7.0, 11.0]
 
-    def test_margins_no_values_two_row_two_cols(self, data):
+    def test_margins_no_values_two_row_two_cols(
+        self, using_groupby_agg_expansion, data
+    ):
         # Regression test on pivot table: no values passed but rows and cols
         # are multi-indexed
         data["D"] = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"]
         result = data[["A", "B", "C", "D"]].pivot_table(
             index=["A", "B"], columns=["C", "D"], aggfunc=len, margins=True
         )
-        expected = DataFrame(
-            index=MultiIndex(
-                levels=[["bar", "foo", "All"], ["one", "two", ""]],
-                codes=[[0, 0, 1, 1, 2], [0, 1, 0, 1, 2]],
-                names=["A", "B"],
-            ),
-            columns=MultiIndex(
-                levels=[[], ["dull", "shiny"], list("abcdefghijk")],
-                codes=[[], [], []],
-                names=[None, "C", "D"],
-            ),
-        )
-        tm.assert_frame_equal(result, expected)
+        if using_groupby_agg_expansion:
+            expected = DataFrame(
+                index=MultiIndex(
+                    levels=[["bar", "foo", "All"], ["one", "two", ""]],
+                    codes=[[0, 0, 1, 1, 2], [0, 1, 0, 1, 2]],
+                    names=["A", "B"],
+                ),
+                columns=MultiIndex(
+                    levels=[
+                        pd.array([], dtype="str"),
+                        ["dull", "shiny"],
+                        list("abcdefghijk"),
+                    ],
+                    codes=[[], [], []],
+                    names=[None, "C", "D"],
+                ),
+            )
+            tm.assert_frame_equal(result, expected)
+        else:
+            print(result)
+            assert result.All.tolist() == [3.0, 1.0, 4.0, 3.0, 11.0]
 
     @pytest.mark.parametrize("margin_name", ["foo", "one", 666, None, ["a", "b"]])
     def test_pivot_table_with_margins_set_margin_name(self, margin_name, data):

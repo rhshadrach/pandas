@@ -2374,9 +2374,16 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
 
     agg = aggregate
 
-    def _agg_expansion(
-        self, func, args, engine, engine_kwargs, kwargs, relabeling, columns, order
-    ):
+    def _agg_expansion(self, func, args, engine, engine_kwargs, kwargs):
+        relabeling, func, columns, order = reconstruct_func(func, **kwargs)
+        func = maybe_mangle_lambdas(func)
+
+        if maybe_use_numba(engine):
+            # Not all agg functions support numba, only propagate numba kwargs
+            # if user asks for numba
+            kwargs["engine"] = engine
+            kwargs["engine_kwargs"] = engine_kwargs
+
         op = GroupByApply(self, func, args=args, kwargs=kwargs)
         result = op.agg()
         if not is_dict_like(func) and result is not None:
@@ -2428,7 +2435,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
 
         obj = self._obj_with_exclusions
 
-        if not len(obj.columns):
+        if not len(obj.columns) and not get_option("future.groupby_agg_expansion"):
             # e.g. test_margins_no_values_no_cols
             return self._python_apply_general(f, self._selected_obj)
 
@@ -2469,7 +2476,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
             if is_transform:
                 # GH#47787 see test_group_on_empty_multiindex
                 res_index = data.index
-            elif not self.group_keys:
+            elif not self.group_keys and not not_indexed_same:
                 res_index = None
             else:
                 res_index = self._grouper.result_index

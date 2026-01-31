@@ -2436,7 +2436,7 @@ def test_rolling_wrong_param_min_period():
 
 
 def test_by_column_values_with_same_starting_value(
-    using_groupby_agg_extension, any_string_dtype
+    using_groupby_agg_expansion, any_string_dtype
 ):
     # GH29635
     dtype = any_string_dtype
@@ -2450,7 +2450,7 @@ def test_by_column_values_with_same_starting_value(
     aggregate_details = {"Mood": Series.mode, "Credit": "sum"}
 
     result = df.groupby(["Name"]).agg(aggregate_details)
-    if using_groupby_agg_extension:
+    if using_groupby_agg_expansion:
         expected = DataFrame(
             {
                 "Mood": [Series(["happy", "sad"]), Series(["happy"])],
@@ -2466,11 +2466,9 @@ def test_by_column_values_with_same_starting_value(
                 "Name": ["Thomas", "Thomas John"],
             },
         ).set_index("Name")
-    if getattr(dtype, "storage", None) == "pyarrow":
-        mood_values = pd.array(["happy", "sad"], dtype=dtype)
-        expected["Mood"] = [mood_values, "happy"]
-    print(result)
-    print(expected)
+        if getattr(dtype, "storage", None) == "pyarrow":
+            mood_values = pd.array(["happy", "sad"], dtype=dtype)
+            expected["Mood"] = [mood_values, "happy"]
     tm.assert_frame_equal(result, expected)
 
 

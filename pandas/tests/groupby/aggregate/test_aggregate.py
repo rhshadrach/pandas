@@ -9,6 +9,8 @@ from functools import partial
 import numpy as np
 import pytest
 
+from pandas._config.config import get_option
+
 from pandas.errors import SpecificationError
 import pandas.util._test_decorators as td
 
@@ -47,9 +49,9 @@ def test_agg_regression1(tsframe):
     tm.assert_frame_equal(result, expected)
 
 
-def test_agg_must_agg(df, using_groupby_agg_extension):
+def test_agg_must_agg(df, using_groupby_agg_expansion):
     grouped = df.groupby("A")["C"]
-    if using_groupby_agg_extension:
+    if using_groupby_agg_expansion:
         expected = Series(
             {
                 "bar": df[df.A == "bar"]["C"].describe(),
@@ -1275,7 +1277,7 @@ class TestLambdaMangling:
         expected = DataFrame({"<lambda_0>": [13], "<lambda_1>": [30]})
         tm.assert_frame_equal(result, expected)
 
-    def test_unused_kwargs(self, using_groupby_agg_extension):
+    def test_unused_kwargs(self, using_groupby_agg_expansion):
         # GH#39169 - Passing kwargs used to have agg pass the entire frame rather
         # than column-by-column
 
@@ -1290,7 +1292,7 @@ class TestLambdaMangling:
         tm.assert_frame_equal(result, expected)
 
         result = df.groupby(level=0).agg(func, foo=42)
-        if not using_groupby_agg_extension:
+        if not using_groupby_agg_expansion:
             expected = DataFrame({0: [3, 7], 1: [3, 7]})
         tm.assert_frame_equal(result, expected)
 
@@ -1590,7 +1592,7 @@ def test_timeseries_groupby_agg():
     tm.assert_frame_equal(res, expected)
 
 
-def test_groupby_agg_precision(any_real_numeric_dtype):
+def test_groupby_agg_precision(any_real_numeric_dtype, using_groupby_agg_expansion):
     if any_real_numeric_dtype in tm.ALL_INT_NUMPY_DTYPES:
         max_value = np.iinfo(any_real_numeric_dtype).max
     if any_real_numeric_dtype in tm.FLOAT_NUMPY_DTYPES:
@@ -1608,12 +1610,20 @@ def test_groupby_agg_precision(any_real_numeric_dtype):
         }
     )
 
-    expected = DataFrame(
-        {"key3": [df["key3"]]},
-        index=MultiIndex(
-            levels=[["a"], ["b"]], codes=[[0], [0]], names=["key1", "key2"]
-        ),
-    )
+    if using_groupby_agg_expansion:
+        expected = DataFrame(
+            {"key3": [df["key3"]]},
+            index=MultiIndex(
+                levels=[["a"], ["b"]], codes=[[0], [0]], names=["key1", "key2"]
+            ),
+        )
+    else:
+        arrays = [["a"], ["b"]]
+        index = MultiIndex.from_arrays(arrays, names=("key1", "key2"))
+
+        expected = DataFrame(
+            {"key3": pd.array([max_value], dtype=any_real_numeric_dtype)}, index=index
+        )
     result = df.groupby(["key1", "key2"]).agg(lambda x: x)
     tm.assert_frame_equal(result, expected)
 
@@ -1693,26 +1703,35 @@ def test_groupby_complex_raises(func):
 
 
 @pytest.mark.parametrize(
-    "test, values",
+    "test, constant",
     [
-        ([[20, "A"], [20, "B"], [10, "C"]], [10, 20]),
-        ([[20, "A"], [20, "B"], [30, "C"]], [20, 30]),
-        ([["a", 1], ["a", 1], ["b", 2], ["b", 3]], ["a", "b"]),
-        ([["a", 1], ["a", 2], ["b", 3], ["b", 3]], ["a", "b"]),
+        ([[20, "A"], [20, "B"], [10, "C"]], {0: [10, 20], 1: ["C", ["A", "B"]]}),
+        ([[20, "A"], [20, "B"], [30, "C"]], {0: [20, 30], 1: [["A", "B"], "C"]}),
+        ([["a", 1], ["a", 1], ["b", 2], ["b", 3]], {0: ["a", "b"], 1: [1, [2, 3]]}),
+        pytest.param(
+            [["a", 1], ["a", 2], ["b", 3], ["b", 3]],
+            {0: ["a", "b"], 1: [[1, 2], 3]},
+            marks=[]
+            if get_option("future.groupby_agg_expansion")
+            else pytest.mark.xfail,
+        ),
     ],
 )
-def test_agg_of_mode_list(test, values):
+def test_agg_of_mode_list(using_groupby_agg_expansion, test, constant):
     # GH#25581
     df1 = DataFrame(test)
     result = df1.groupby(0).agg(Series.mode)
     # Mode usually only returns 1 value, but can return a list in the case of a tie.
 
-    expected = DataFrame(
-        [[df1[df1[0] == value][1].mode()] for value in values],
-        index=Index(values, name=0),
-        columns=[1],
-    )
-
+    if using_groupby_agg_expansion:
+        expected = DataFrame(
+            [[df1[df1[0] == value][1].mode()] for value in constant[0]],
+            index=Index(constant[0], name=0),
+            columns=[1],
+        )
+    else:
+        expected = DataFrame(constant)
+        expected = expected.set_index(0)
     tm.assert_frame_equal(result, expected)
 
 

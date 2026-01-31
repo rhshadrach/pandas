@@ -19,6 +19,8 @@ from typing import (
 
 import numpy as np
 
+from pandas._config import get_option
+
 from pandas._libs import (
     NaT,
     lib,
@@ -994,8 +996,15 @@ class BaseGrouper:
 
         for i, group in enumerate(splitter):
             res = func(group)
+            if get_option("future.groupby_agg_expansion"):
+                if self._is_resample:
+                    res = extract_result(res)
 
-            if self._is_resample:
+                    if not initialized:
+                        # We only do this validation on the first iteration
+                        check_result_array(res, group.dtype)
+                        initialized = True
+            else:
                 res = extract_result(res)
 
                 if not initialized:

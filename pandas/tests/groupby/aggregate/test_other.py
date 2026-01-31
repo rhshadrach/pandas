@@ -605,7 +605,7 @@ def test_agg_list_like_func():
     tm.assert_frame_equal(result, expected)
 
 
-def test_agg_lambda_with_timezone():
+def test_agg_lambda_with_timezone(using_groupby_agg_expansion):
     # GH 23683
     df = DataFrame(
         {
@@ -617,8 +617,12 @@ def test_agg_lambda_with_timezone():
         }
     )
     result = df.groupby("tag").agg({"date": lambda e: e.head(1)})
+    if using_groupby_agg_expansion:
+        value = [df["date"].head(1)]
+    else:
+        value = pd.Timestamp("2018-01-01", tz="UTC")
     expected = DataFrame(
-        [[df["date"].head(1)]],
+        [value],
         index=Index([1], name="tag"),
         columns=["date"],
     )
