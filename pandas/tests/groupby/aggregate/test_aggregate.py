@@ -47,29 +47,37 @@ def test_agg_regression1(tsframe):
     tm.assert_frame_equal(result, expected)
 
 
-def test_agg_must_agg(df):
+def test_agg_must_agg(df, using_groupby_agg_extension):
     grouped = df.groupby("A")["C"]
-    expected = Series(
-        {
-            "bar": df[df.A == "bar"]["C"].describe(),
-            "foo": df[df.A == "foo"]["C"].describe(),
-        },
-        index=Index(["bar", "foo"], name="A"),
-        name="C",
-    )
-    result = grouped.agg(lambda x: x.describe())
-    tm.assert_series_equal(result, expected)
+    if using_groupby_agg_extension:
+        expected = Series(
+            {
+                "bar": df[df.A == "bar"]["C"].describe(),
+                "foo": df[df.A == "foo"]["C"].describe(),
+            },
+            index=Index(["bar", "foo"], name="A"),
+            name="C",
+        )
+        result = grouped.agg(lambda x: x.describe())
+        tm.assert_series_equal(result, expected)
 
-    expected = Series(
-        {
-            "bar": df[df.A == "bar"]["C"].index[:2],
-            "foo": df[df.A == "foo"]["C"].index[:2],
-        },
-        index=Index(["bar", "foo"], name="A"),
-        name="C",
-    )
-    result = grouped.agg(lambda x: x.index[:2])
-    tm.assert_series_equal(result, expected)
+        expected = Series(
+            {
+                "bar": df[df.A == "bar"]["C"].index[:2],
+                "foo": df[df.A == "foo"]["C"].index[:2],
+            },
+            index=Index(["bar", "foo"], name="A"),
+            name="C",
+        )
+        result = grouped.agg(lambda x: x.index[:2])
+        tm.assert_series_equal(result, expected)
+        return
+
+    msg = "Must produce aggregated value"
+    with pytest.raises(Exception, match=msg):
+        grouped.agg(lambda x: x.describe())
+    with pytest.raises(Exception, match=msg):
+        grouped.agg(lambda x: x.index[:2])
 
 
 def test_agg_ser_multi_key(df):
@@ -1267,7 +1275,7 @@ class TestLambdaMangling:
         expected = DataFrame({"<lambda_0>": [13], "<lambda_1>": [30]})
         tm.assert_frame_equal(result, expected)
 
-    def test_unused_kwargs(self):
+    def test_unused_kwargs(self, using_groupby_agg_extension):
         # GH#39169 - Passing kwargs used to have agg pass the entire frame rather
         # than column-by-column
 
@@ -1275,12 +1283,15 @@ class TestLambdaMangling:
         func = lambda data, **kwargs: np.sum(np.sum(data))
 
         df = DataFrame([[1, 2], [3, 4]])
+
         expected = DataFrame({0: [1, 3], 1: [2, 4]})
 
         result = df.groupby(level=0).agg(func)
         tm.assert_frame_equal(result, expected)
 
         result = df.groupby(level=0).agg(func, foo=42)
+        if not using_groupby_agg_extension:
+            expected = DataFrame({0: [3, 7], 1: [3, 7]})
         tm.assert_frame_equal(result, expected)
 
     def test_agg_with_one_lambda(self):

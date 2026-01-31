@@ -2122,6 +2122,14 @@ def using_python_scalars() -> bool:
     return pd.options.future.python_scalars is True
 
 
+@pytest.fixture
+def using_groupby_agg_extension() -> bool:
+    """
+    Fixture to check if infer string option is enabled.
+    """
+    return pd.options.future.groupby_agg_expansion is True
+
+
 _warsaws: list[Any] = ["Europe/Warsaw", "dateutil/Europe/Warsaw"]
 if pytz is not None:
     _warsaws.append(pytz.timezone("Europe/Warsaw"))

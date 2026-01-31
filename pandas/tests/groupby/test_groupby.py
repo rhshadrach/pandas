@@ -2435,7 +2435,9 @@ def test_rolling_wrong_param_min_period():
         test_df.groupby("name")["val"].rolling(window=2, min_period=1).sum()
 
 
-def test_by_column_values_with_same_starting_value(any_string_dtype):
+def test_by_column_values_with_same_starting_value(
+    using_groupby_agg_extension, any_string_dtype
+):
     # GH29635
     dtype = any_string_dtype
     df = DataFrame(
@@ -2448,16 +2450,27 @@ def test_by_column_values_with_same_starting_value(any_string_dtype):
     aggregate_details = {"Mood": Series.mode, "Credit": "sum"}
 
     result = df.groupby(["Name"]).agg(aggregate_details)
-    expected = DataFrame(
-        {
-            "Mood": [Series(["happy", "sad"]), Series(["happy"])],
-            "Credit": [2500, 900],
-            "Name": ["Thomas", "Thomas John"],
-        },
-    ).set_index("Name")
+    if using_groupby_agg_extension:
+        expected = DataFrame(
+            {
+                "Mood": [Series(["happy", "sad"]), Series(["happy"])],
+                "Credit": [2500, 900],
+                "Name": ["Thomas", "Thomas John"],
+            },
+        ).set_index("Name")
+    else:
+        expected = DataFrame(
+            {
+                "Mood": [["happy", "sad"], "happy"],
+                "Credit": [2500, 900],
+                "Name": ["Thomas", "Thomas John"],
+            },
+        ).set_index("Name")
     if getattr(dtype, "storage", None) == "pyarrow":
         mood_values = pd.array(["happy", "sad"], dtype=dtype)
         expected["Mood"] = [mood_values, "happy"]
+    print(result)
+    print(expected)
     tm.assert_frame_equal(result, expected)
 
 
@@ -2928,7 +2941,6 @@ def test_groupby_dropna_with_nunique_unique():
     # GH#42016
     df = [[1, 1, 1, "A"], [1, None, 1, "A"], [1, None, 2, "A"], [1, None, 3, "A"]]
     df_dropna = DataFrame(df, columns=["a", "b", "c", "partner"])
-
     result = df_dropna.groupby(["a", "b", "c"], dropna=False).agg(
         {"partner": ["nunique", "unique"]}
     )

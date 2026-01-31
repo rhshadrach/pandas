@@ -909,6 +909,18 @@ with cf.config_prefix("future"):
         validator=is_one_of_factory([True, False]),
     )
 
+    cf.register_option(
+        "groupby_agg_expansion",
+        False
+        if os.environ.get("PANDAS_FUTURE_GROUPBY_AGG_EXPANSION", "0") == "0"
+        else True,
+        "Expand `groupby.agg` to allow for returning more general Python objects. "
+        "pandas will always treat the provided function as a reducer, any return will"
+        "always go into a single cell in the result, regardless of type."
+        "Currently experimental, setting to True is not recommended for end users.",
+        validator=is_one_of_factory([True, False]),
+    )
+
 
 # GH#59502
 cf.deprecate_option("future.no_silent_downcasting", Pandas4Warning)

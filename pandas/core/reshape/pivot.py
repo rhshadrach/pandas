@@ -641,7 +641,7 @@ def _generate_marginal_results_without_values(
     dropna: bool = True,
 ):
     margin_keys: list | Index
-    if len(table.columns) > 0:
+    if len(table.columns) > 0:  # TODO: Why did this change?
         # need to "interleave" the margins
         margin_keys = []
 
