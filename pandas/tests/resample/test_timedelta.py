@@ -172,9 +172,6 @@ def test_resample_with_timedelta_yields_no_empty_groups(duplicates):
         index=timedelta_range(start="1s", periods=13, freq="3s", unit="ns"),
     )
     expected.columns = df.columns
-    print(result)
-    print()
-    print(expected)
     tm.assert_frame_equal(result, expected)
 
 

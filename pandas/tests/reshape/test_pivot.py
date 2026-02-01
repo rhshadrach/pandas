@@ -1285,7 +1285,6 @@ class TestPivotTable:
             )
             tm.assert_frame_equal(result, expected)
         else:
-            print(result)
             assert result.All.tolist() == [3.0, 1.0, 4.0, 3.0, 11.0]
 
     @pytest.mark.parametrize("margin_name", ["foo", "one", 666, None, ["a", "b"]])
