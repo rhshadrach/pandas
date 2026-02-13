@@ -651,7 +651,7 @@ class Index(IndexOpsMixin, PandasObject):
 
         Must be careful not to recurse.
         """
-        assert isinstance(values, cls._data_cls), type(values)
+        assert isinstance(values, cls._data_cls), f"{type(values)} -- {cls._data_cls}"
 
         result = object.__new__(cls)
         result._data = values

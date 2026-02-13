@@ -109,6 +109,9 @@ def pytest_addoption(parser) -> None:
     )
 
 
+session_mp = pytest.MonkeyPatch()
+
+
 def pytest_sessionstart(session):
     import doctest
     import inspect
@@ -129,6 +132,120 @@ def pytest_sessionstart(session):
         return orig(self, module, object)
 
     doctest.DocTestFinder._from_module = _from_module  # type: ignore[attr-defined]
+
+    import types
+    import functools as ft
+    from pandas.core.dtypes.cast import maybe_unbox_numpy_scalar
+
+    def is_class_method(method):
+        if not isinstance(method, types.MethodType):
+            return False
+
+        bound_to = getattr(method, '__self__', None)
+        if not isinstance(bound_to, type):
+            return False
+
+        name = method.__name__
+        for cls in bound_to.__mro__:
+            descriptor = vars(cls).get(name)
+            if descriptor is not None:
+                return isinstance(descriptor, classmethod)
+
+        return False
+
+    def wrap_callable(func, is_staticmethod=False):
+        if hasattr(func, "_has_patch"):
+            return func
+
+        if is_class_method(func):
+            @ft.wraps(func)
+            def wrapper(cls, *args, **kwargs):
+                result = func(*args, **kwargs)
+                with pd.option_context("future.python_scalars", True):
+                    maybe_unboxed = maybe_unbox_numpy_scalar(result)
+                if result is not maybe_unboxed:
+                    line = f"{func.__module__}:{func.__qualname__}"
+                    with open("/home/richard/dev/pandas/tmp.txt", mode="w+") as fh:
+                        fh.write(line)
+                return result
+            wrapper = classmethod(wrapper)
+        else:
+            @ft.wraps(func)
+            def wrapper(*args, **kwargs):
+                if is_staticmethod or func.__name__ in ["_validate_n"]:
+                    result = func(*args[1:], **kwargs)
+                else:
+                    result = func(*args, **kwargs)
+                with pd.option_context("future.python_scalars", True):
+                    maybe_unboxed = maybe_unbox_numpy_scalar(result)
+                if result is not maybe_unboxed:
+                    line = f"{func.__module__}:{func.__qualname__}"
+                    with open("/home/richard/dev/pandas/tmp.txt", mode="w+") as fh:
+                        fh.write(line)
+                return result
+
+        wrapper._has_patch = True
+        return wrapper
+
+    def find_all_callables(obj, buf, visited=None, level=0, parent=None):
+        if visited is None:
+            visited = set()
+        if id(obj) in visited:
+            return
+
+        visited.add(id(obj))
+
+        if isinstance(obj, pd._libs.properties.CachedProperty):
+            return
+
+        if callable(obj) and not inspect.isclass(obj):
+            buf.append((obj, parent))
+        if is_class_method(obj):
+            return
+
+        for name, subobj in inspect.getmembers(obj):
+            if id(subobj) in visited:
+                continue
+            if isinstance(subobj, property):
+                find_all_callables(subobj, buf, visited, level + 1, parent=obj)
+            elif is_class_method(subobj):
+                continue
+            elif not hasattr(subobj, "__module__") or subobj.__module__ is None or not subobj.__module__.startswith(
+                "pandas"):
+                continue
+            elif not hasattr(subobj, "__qualname__"):
+                continue
+            elif subobj.__name__ in ["_simple_new", "__new__"]:
+                continue
+            else:
+                find_all_callables(subobj, buf, visited, level + 1, parent=obj)
+
+    buf = []
+    visited = {id(pd.option_context)}
+    find_all_callables(pd, buf, visited)
+
+    # for obj, parent in buf:
+    #     print(obj.__qualname__)
+
+    for obj, parent in buf:
+        path = f"{obj.__module__}.{obj.__qualname__}"
+        if "<locals>" in str(path) or "<lambda>" in str(path):
+            continue
+        if isinstance(parent, property):
+            if len(inspect.signature(obj).parameters) != 1:
+                continue
+            prop = property(wrap_callable(obj), getattr(parent, "fset", None), getattr(parent, "fdel", None))
+            session_mp.setattr(path, prop)
+        else:
+            if inspect.isclass(parent):
+                if "." not in obj.__qualname__:
+                    print(parent, obj, parent.__name__, obj.__qualname__)
+                    is_staticmethod = False
+                else:
+                    is_staticmethod = isinstance(inspect.getattr_static(parent, obj.__name__), staticmethod)
+            else:
+                is_staticmethod = False
+            session_mp.setattr(path, wrap_callable(obj, is_staticmethod))
 
 
 def ignore_doctest_warning(item: pytest.Item, path: str, message: str) -> None:
