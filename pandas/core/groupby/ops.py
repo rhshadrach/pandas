@@ -27,7 +27,6 @@ from pandas._libs import (
 import pandas._libs.groupby as libgroupby
 from pandas._typing import (
     ArrayLike,
-    AxisInt,
     NDFrameT,
     Shape,
     npt,
@@ -47,7 +46,6 @@ from pandas.core.dtypes.common import (
     ensure_int64,
     ensure_platform_int,
     ensure_uint64,
-    is_1d_only_ea_dtype,
 )
 from pandas.core.dtypes.missing import (
     isna,
@@ -534,22 +532,10 @@ class WrappedCythonOp:
         return op_result
 
     @final
-    def _validate_axis(self, axis: AxisInt, values: ArrayLike) -> None:
-        if values.ndim > 2:
-            raise NotImplementedError("number of dimensions is currently limited to 2")
-        if values.ndim == 2:
-            assert axis == 1, axis
-        elif not is_1d_only_ea_dtype(values.dtype):
-            # Note: it is *not* the case that axis is always 0 for 1-dim values,
-            #  as we can have 1D ExtensionArrays that we need to treat as 2D
-            assert axis == 0
-
-    @final
     def cython_operation(
         self,
         *,
         values: ArrayLike,
-        axis: AxisInt,
         min_count: int = -1,
         comp_ids: np.ndarray,
         ngroups: int,
@@ -558,8 +544,6 @@ class WrappedCythonOp:
         """
         Call our cython function, with appropriate pre- and post- processing.
         """
-        self._validate_axis(axis, values)
-
         if not isinstance(values, np.ndarray):
             # i.e. ExtensionArray
             return values._groupby_op(
@@ -962,7 +946,6 @@ class BaseGrouper:
         kind: str,
         values,
         how: str,
-        axis: AxisInt,
         min_count: int = -1,
         **kwargs,
     ) -> ArrayLike:
@@ -975,7 +958,6 @@ class BaseGrouper:
 
         return cy_op.cython_operation(
             values=values,
-            axis=axis,
             min_count=min_count,
             comp_ids=self.ids,
             ngroups=self.ngroups,

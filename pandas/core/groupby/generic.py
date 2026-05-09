@@ -761,7 +761,7 @@ class SeriesGroupBy(GroupBy[Series]):
 
         try:
             result = self._grouper._cython_operation(
-                "transform", obj._values, how, 0, **kwargs
+                "transform", obj._values, how, **kwargs
             )
         except NotImplementedError as err:
             # e.g. test_groupby_raises_string
@@ -2512,9 +2512,7 @@ class DataFrameGroupBy(GroupBy[DataFrame]):
         )
 
         def arr_func(bvalues: ArrayLike) -> ArrayLike:
-            return self._grouper._cython_operation(
-                "transform", bvalues, how, 1, **kwargs
-            )
+            return self._grouper._cython_operation("transform", bvalues, how, **kwargs)
 
         res_mgr = mgr.apply(arr_func)
 

@@ -1538,7 +1538,6 @@ class GroupBy(BaseGroupBy[NDFrameT]):
                     "aggregate",
                     values,
                     _how,
-                    axis=data.ndim - 1,
                     min_count=min_count,
                     **kwargs,
                 )
@@ -3421,7 +3420,7 @@ class GroupBy(BaseGroupBy[NDFrameT]):
                 raise DataError("No numeric types to aggregate")
 
             res_values = self._grouper._cython_operation(
-                "aggregate", obj._values, "ohlc", axis=0, min_count=-1
+                "aggregate", obj._values, "ohlc", min_count=-1
             )
 
             agg_names = ["open", "high", "low", "close"]
