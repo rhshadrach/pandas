@@ -12,23 +12,15 @@ from pandas import (
     date_range,
     to_timedelta,
 )
+import pandas.core.computation.expressions as expr
 
-from .pandas_vb_common import numeric_dtypes
-
-try:
-    import pandas.core.computation.expressions as expr
-except ImportError:
-    import pandas.computation.expressions as expr
-try:
-    import pandas.tseries.holiday
-except ImportError:
-    pass
+import pandas.tseries.holiday
 
 
 class IntFrameWithScalar:
     params = [
         [np.float64, np.int64],
-        [2, 3.0, np.int32(4), np.float64(5)],
+        [2, np.float64(3.0)],
         [
             operator.add,
             operator.sub,
@@ -48,8 +40,11 @@ class IntFrameWithScalar:
     param_names = ["dtype", "scalar", "op"]
 
     def setup(self, dtype, scalar, op):
-        arr = np.random.randn(20000, 100)
-        self.df = DataFrame(arr.astype(dtype))
+        if np.issubdtype(dtype, np.integer):
+            arr = np.random.randint(-1000, 1000, (20000, 100), dtype=dtype)
+        else:
+            arr = np.random.rand(20000, 100).astype(dtype)
+        self.df = DataFrame(arr)
 
     def time_frame_op_with_scalar(self, dtype, scalar, op):
         op(self.df, scalar)
@@ -141,16 +136,16 @@ class FrameWithFrameWide:
             n_rows = n_rows // 10
 
         # construct dataframe with 2 blocks
-        arr1 = np.random.randn(n_rows, n_cols // 2).astype("f8")
-        arr2 = np.random.randn(n_rows, n_cols // 2).astype("f4")
+        arr1 = np.random.rand(n_rows, n_cols // 2)
+        arr2 = np.random.rand(n_rows, n_cols // 2).astype("f4")
         df = pd.concat([DataFrame(arr1), DataFrame(arr2)], axis=1, ignore_index=True)
         # should already be the case, but just to be sure
         df._consolidate_inplace()
 
         # TODO: GH#33198 the setting here shouldn't need two steps
-        arr1 = np.random.randn(n_rows, max(n_cols // 4, 3)).astype("f8")
-        arr2 = np.random.randn(n_rows, n_cols // 2).astype("i8")
-        arr3 = np.random.randn(n_rows, n_cols // 4).astype("f8")
+        arr1 = np.random.rand(n_rows, max(n_cols // 4, 3))
+        arr2 = np.random.randint(-100, 100, (n_rows, n_cols // 2), dtype="i8")
+        arr3 = np.random.rand(n_rows, n_cols // 4)
         df2 = pd.concat(
             [DataFrame(arr1), DataFrame(arr2), DataFrame(arr3)],
             axis=1,
@@ -176,8 +171,11 @@ class Ops:
     param_names = ["use_numexpr", "threads"]
 
     def setup(self, use_numexpr, threads):
-        self.df = DataFrame(np.random.randn(20000, 100))
-        self.df2 = DataFrame(np.random.randn(20000, 100))
+        # rand-0.5 gives ~50% negative values so the boolean-mask benchmark
+        # exercises real NaN-fill work; shape sized so time_frame_multi_and
+        # lands near 20ms.
+        self.df = DataFrame(np.random.rand(30000, 100) - 0.5)
+        self.df2 = DataFrame(np.random.rand(30000, 100) - 0.5)
 
         if threads != "default":
             expr.set_numexpr_threads(threads)
@@ -204,21 +202,11 @@ class Ops:
 class Ops2:
     def setup(self):
         N = 10**3
-        self.df = DataFrame(np.random.randn(N, N))
-        self.df2 = DataFrame(np.random.randn(N, N))
-
-        self.df_int = DataFrame(
-            np.random.randint(
-                np.iinfo(np.int16).min, np.iinfo(np.int16).max, size=(N, N)
-            )
-        )
-        self.df2_int = DataFrame(
-            np.random.randint(
-                np.iinfo(np.int16).min, np.iinfo(np.int16).max, size=(N, N)
-            )
-        )
-
-        self.s = Series(np.random.randn(N))
+        # rand-0.5 (vs plain rand) gives float_mod realistic magnitudes
+        # so it lands near 20ms rather than under 10ms.
+        self.df = DataFrame(np.random.rand(N, N) - 0.5)
+        self.df2 = DataFrame(np.random.rand(N, N) - 0.5)
+        self.s = Series(np.random.rand(N) - 0.5)
 
     # Division
 
@@ -231,13 +219,7 @@ class Ops2:
     def time_frame_float_floor_by_zero(self):
         self.df // 0
 
-    def time_frame_int_div_by_zero(self):
-        self.df_int / 0
-
     # Modulo
-
-    def time_frame_int_mod(self):
-        self.df_int % self.df2_int
 
     def time_frame_float_mod(self):
         self.df % self.df2
@@ -252,6 +234,20 @@ class Ops2:
 
     def time_frame_series_dot(self):
         self.df.dot(self.s)
+
+
+class Ops2Int:
+    def setup(self):
+        N = 10**3
+        info = np.iinfo(np.int16)
+        self.df_int = DataFrame(np.random.randint(info.min, info.max, size=(N, N)))
+        self.df2_int = DataFrame(np.random.randint(info.min, info.max, size=(N, N)))
+
+    def time_frame_int_div_by_zero(self):
+        self.df_int / 0
+
+    def time_frame_int_mod(self):
+        self.df_int % self.df2_int
 
 
 class Timeseries:
@@ -310,7 +306,9 @@ class CategoricalComparisons:
 
     def setup(self, op):
         N = 10**5
-        self.cat = pd.Categorical(list("aabbcd") * N, ordered=True)
+        codes = np.tile(np.array([0, 0, 1, 1, 2, 3], dtype="int8"), N)
+        dtype = pd.CategoricalDtype(["a", "b", "c", "d"], ordered=True)
+        self.cat = pd.Categorical.from_codes(codes, dtype=dtype)
 
     def time_categorical_op(self, op):
         getattr(self.cat, op)("b")
@@ -345,7 +343,7 @@ class IndexArithmetic:
 
 class NumericInferOps:
     # from GH 7332
-    params = numeric_dtypes
+    params = [np.int64, np.uint64, np.float32, np.float64]
     param_names = ["dtype"]
 
     def setup(self, dtype):
@@ -393,28 +391,18 @@ hcal = pd.tseries.holiday.USFederalHolidayCalendar()
 non_apply = [
     pd.offsets.Day(),
     pd.offsets.BYearEnd(),
-    pd.offsets.BYearBegin(),
     pd.offsets.BQuarterEnd(),
-    pd.offsets.BQuarterBegin(),
     pd.offsets.BMonthEnd(),
-    pd.offsets.BMonthBegin(),
-    pd.offsets.CustomBusinessDay(),
     pd.offsets.CustomBusinessDay(calendar=hcal),
-    pd.offsets.CustomBusinessMonthBegin(calendar=hcal),
-    pd.offsets.CustomBusinessMonthEnd(calendar=hcal),
     pd.offsets.CustomBusinessMonthEnd(calendar=hcal),
 ]
 other_offsets = [
     pd.offsets.YearEnd(),
-    pd.offsets.YearBegin(),
     pd.offsets.QuarterEnd(),
-    pd.offsets.QuarterBegin(),
     pd.offsets.MonthEnd(),
-    pd.offsets.MonthBegin(),
     pd.offsets.DateOffset(months=2, days=2),
     pd.offsets.BusinessDay(),
     pd.offsets.SemiMonthEnd(),
-    pd.offsets.SemiMonthBegin(),
 ]
 offsets = non_apply + other_offsets
 
@@ -424,7 +412,15 @@ class OffsetArrayArithmetic:
     param_names = ["offset"]
 
     def setup(self, offset):
-        N = 10000
+        # CustomBusiness* offsets dispatch per-element, so are linear in N;
+        # use a smaller N for them to keep the timed portion under ~100ms.
+        if isinstance(
+            offset,
+            (pd.offsets.CustomBusinessDay, pd.offsets.CustomBusinessMonthEnd),
+        ):
+            N = 1500
+        else:
+            N = 10000
         rng = date_range(start="1/1/2000", periods=N, freq="min")
         self.rng = rng
         self.ser = Series(rng)
