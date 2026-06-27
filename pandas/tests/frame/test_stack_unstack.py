@@ -730,7 +730,7 @@ class TestDataFrameReshape:
         exp_col = MultiIndex.from_product([range(2), ["A", "B", "C"]])
         expected = DataFrame([[1, 1, 1, 0, 0, 0]], index=["a"], columns=exp_col)
         tm.assert_frame_equal(result, expected)
-        assert (result.columns.levels[1] == exp_col.levels[1]).all()
+        tm.assert_index_equal(result.columns.levels[1], idx.levels[1])
 
         # Unused items on both levels
         levels = [range(3), range(4)]
@@ -743,10 +743,7 @@ class TestDataFrameReshape:
             np.concatenate([block * 2, block * 2 + 1], axis=1), columns=idx
         )
         tm.assert_frame_equal(result, expected)
-        assert (
-            result.columns.levels[1]
-            == expected.columns.remove_unused_levels().levels[1]
-        ).all()
+        tm.assert_index_equal(result.columns.levels[1], idx.levels[1])
 
     @pytest.mark.parametrize(
         "level, idces, col_level, idx_level",
@@ -1389,20 +1386,8 @@ def test_unstack_sort_false(frame_or_series, dtype):
     tm.assert_frame_equal(result, expected)
 
 
-@pytest.mark.parametrize(
-    "sort, expected_columns",
-    [
-        (
-            False,
-            MultiIndex.from_product([["value"], ["b", "c"]], names=[None, "series"]),
-        ),
-        (
-            True,
-            MultiIndex.from_product([["value"], ["b", "c"]], names=[None, "series"]),
-        ),
-    ],
-)
-def test_unstack_unused_levels(sort, expected_columns):
+@pytest.mark.parametrize("sort", [False, True])
+def test_unstack_unused_levels(sort):
     # GH#64150
     index = MultiIndex.from_product(
         [["a", "b", "c"], ["M01", "M02"]], names=["series", "period"]
@@ -1414,9 +1399,13 @@ def test_unstack_unused_levels(sort, expected_columns):
     expected = DataFrame(
         [[2, 4], [3, 5]],
         index=Index(["M01", "M02"], name="period"),
-        columns=expected_columns,
+        columns=MultiIndex.from_product(
+            [["value"], ["b", "c"]], names=[None, "series"]
+        ),
     )
     tm.assert_frame_equal(result, expected)
+    # unused level value "a" is retained in the unstacked columns' level
+    tm.assert_index_equal(result.columns.levels[1], index.levels[0])
 
 
 @pytest.mark.parametrize(

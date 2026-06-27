@@ -140,9 +140,8 @@ class _Unstacker:
 
         self.removed_name = self.new_index_names.pop(self.level)
         self.removed_level = self.new_index_levels.pop(self.level)
+        self.removed_level_full = index.levels[self.level]
         self.unique_nan_index: int = -1
-        # Keep only observed labels in the unstacked level for both sort modes;
-        # sort controls ordering, not whether unused labels appear.
         unique_codes: np.ndarray = unique(self.index.codes[self.level])
         if self.has_nan:
             # drop nan codes, because they are not represented in level
@@ -155,7 +154,6 @@ class _Unstacker:
             unique_codes = np.sort(unique_codes)
 
         self.removed_level = self.removed_level.take(unique_codes)
-        self.removed_level_full = self.removed_level
 
         if get_option("performance_warnings"):
             # Bug fix GH 20601
@@ -411,26 +409,14 @@ class _Unstacker:
 
     @cache_readonly
     def _repeater(self) -> np.ndarray:
-        # The two indices differ only if the unstacked level had unused items:
-        if len(self.removed_level_full) != len(self.removed_level):
-            # In this case, we remap the new codes to the original level:
-            repeater = self.removed_level_full.get_indexer(self.removed_level)
-            if self.has_nan:
-                # insert nan index at first position
-                repeater = np.insert(repeater, 0, -1)
-        else:
-            # Otherwise, we just use each level item exactly once:
-            stride = len(self.removed_level) + self.has_nan
-            repeater = np.arange(stride) - self.lift
-            if self.has_nan and not self.sort:
-                assert self.unique_nan_index > -1, (
-                    "`unique_nan_index` not properly initialized"
-                )
-                # assign -1 where should be nan according to the unique values.
-                repeater[self.unique_nan_index] = -1
-                # compensate for the removed index level
-                repeater[self.unique_nan_index + 1 :] -= 1
-
+        # Map each column slot of the unstacked level to its position in
+        # removed_level_full, which retains any unused level values.
+        repeater = self.removed_level_full.get_indexer(self.removed_level)
+        if self.has_nan:
+            # nan occupies the first slot when sorting, otherwise its position
+            # of appearance.
+            nan_pos = 0 if self.sort else self.unique_nan_index
+            repeater = np.insert(repeater, nan_pos, -1)
         return repeater
 
     @cache_readonly
