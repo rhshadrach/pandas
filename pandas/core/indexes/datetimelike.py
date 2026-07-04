@@ -1457,16 +1457,12 @@ class DatetimeTimedeltaMixin(DatetimeIndexOpsMixin, ABC):
         # GH#3232: If the concat result is evenly spaced, we can retain the
         # original frequency
         obj = cast("DatetimeTimedeltaMixin", to_concat[0])
-        to_concat_nonempty = cast(
-            "list[DatetimeTimedeltaMixin]",
-            [idx for idx in to_concat if len(idx)],
-        )
-        if (
-            isinstance(result, type(self))
-            and obj.freq is not None
-            and all(idx.freq == obj.freq for idx in to_concat_nonempty)
-        ):
-            freq = obj.freq
+        freq = obj.freq
+        if isinstance(result, type(self)) and freq is not None:
+            to_concat_nonempty = cast(
+                "list[DatetimeTimedeltaMixin]",
+                [idx for idx in to_concat if len(idx)],
+            )
             tz = getattr(self.dtype, "tz", None)
             if (
                 isinstance(freq, Tick) or (tz is None and isinstance(freq, Day))
@@ -1474,11 +1470,25 @@ class DatetimeTimedeltaMixin(DatetimeIndexOpsMixin, ABC):
                 # freq is a fixed delta in the stored i8 representation, so we
                 # can check boundary continuity without boxing endpoints to
                 # Timestamps and doing per-pair offset arithmetic.
-                step = Timedelta(freq).as_unit(self.unit)._value
-                i8s = [idx._data._ndarray.view("i8") for idx in to_concat_nonempty]
-                evenly_spaced = all(a[-1] + step == b[0] for a, b in pairwise(i8s))
+                if self.unit == "ns":
+                    step = freq.nanos
+                else:
+                    step = Timedelta(freq).as_unit(self.unit)._value
+                evenly_spaced = True
+                prev_i8 = None
+                for idx in to_concat_nonempty:
+                    if idx.freq != freq:
+                        evenly_spaced = False
+                        break
+                    i8 = idx._data._ndarray.view("i8")
+                    if prev_i8 is not None and prev_i8[-1] + step != i8[0]:
+                        evenly_spaced = False
+                        break
+                    prev_i8 = i8
             else:
                 evenly_spaced = all(
+                    idx.freq == freq for idx in to_concat_nonempty
+                ) and all(
                     pair[0][-1] + freq == pair[1][0]
                     for pair in pairwise(to_concat_nonempty)
                 )
