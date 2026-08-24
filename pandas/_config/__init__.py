@@ -34,11 +34,18 @@ def using_string_dtype() -> bool:
     return _mode_options["infer_string"]
 
 
-def using_python_scalars() -> bool:
-    from pandas._config.config import _global_config as config
+# The "future" sub-dict of _global_config is created once at option
+# registration and only ever mutated in place, so the reference can be cached.
+_future_options: dict | None = None
 
-    _mode_options = config["future"]
-    return _mode_options["python_scalars"]
+
+def using_python_scalars() -> bool:
+    global _future_options
+    if _future_options is None:
+        from pandas._config.config import _global_config
+
+        _future_options = _global_config["future"]
+    return _future_options["python_scalars"]
 
 
 def is_nan_na() -> bool:

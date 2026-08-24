@@ -1476,7 +1476,7 @@ def maybe_unbox_numpy_scalar(value: Any, *, dtype: DtypeObj | None = None) -> An
         The equivalent Python scalar, or ``value`` unchanged.
     """
     result = value
-    if dtype != object and using_python_scalars() and isinstance(value, np.generic):
+    if using_python_scalars() and isinstance(value, np.generic) and dtype != object:
         if isinstance(result, np.longdouble):
             result = float(result)
         elif isinstance(result, np.complex256):

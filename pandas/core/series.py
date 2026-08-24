@@ -1034,7 +1034,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
         -------
         scalar
         """
-        return self._values[i]
+        return maybe_unbox_numpy_scalar(self._values[i], dtype=self.dtype)
 
     def _slice(
         self, slobj: slice, axis: AxisInt = 0, new_index: Index | None = None
@@ -1144,20 +1144,20 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
         scalar value
         """
         if takeable:
-            return self._values[label]
+            return maybe_unbox_numpy_scalar(self._values[label], dtype=self.dtype)
 
         # Similar to Index.get_value, but we do not fall back to positional
         loc = self.index.get_loc(label)
 
         if is_integer(loc):
-            return self._values[loc]
+            return maybe_unbox_numpy_scalar(self._values[loc], dtype=self.dtype)
 
         if isinstance(self.index, MultiIndex):
             mi = self.index
             new_values = self._values[loc]
             if len(new_values) == 1 and mi.nlevels == 1:
                 # If more than one level left, we can not return a scalar
-                return new_values[0]
+                return maybe_unbox_numpy_scalar(new_values[0], dtype=self.dtype)
 
             new_index = mi[loc]
             new_index = maybe_droplevels(new_index, label)
@@ -3717,10 +3717,23 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
             new_index = self.index.union(other.index)
             new_name = ops.get_op_result_name(self, other)
             new_values = np.empty(len(new_index), dtype=object)
+
+            def get_stored_value(ser: Series, key):
+                # Values as stored in the array, without the unboxing that
+                # future.python_scalars applies in Series.get, so that func and
+                # _cast_pointwise_result below see the original types.
+                try:
+                    loc = ser.index.get_loc(key)
+                except (KeyError, TypeError, InvalidIndexError):
+                    return fill_value
+                if is_integer(loc):
+                    return ser._values[loc]
+                return ser[key]
+
             with np.errstate(all="ignore"):
                 for i, idx in enumerate(new_index):
-                    lv = self.get(idx, fill_value)
-                    rv = other.get(idx, fill_value)
+                    lv = get_stored_value(self, idx)
+                    rv = get_stored_value(other, idx)
                     new_values[i] = func(lv, rv)
         else:
             # Assume that other is a scalar, so apply the function for

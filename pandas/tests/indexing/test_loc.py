@@ -264,7 +264,7 @@ class TestLoc:
                 IndexSlice[:, False],
                 Series([1], name=False),
             ),
-            (Series([1], index=Index([False])), False, [1]),
+            (Series([1], index=Index([False])), False, 1),
             (DataFrame([[1]], index=Index([False])), False, Series([1], name=False)),
         ],
     )

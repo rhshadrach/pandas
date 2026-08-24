@@ -701,6 +701,41 @@ def test_duplicated_index_getitem_positional_indexer(index_vals):
         s[3]
 
 
+class TestGetitemPythonScalars:
+    # GH#20791
+    def test_getitem_scalar_key(self, using_python_scalars):
+        ser = Series([1, 2, 3])
+        expected_type = int if using_python_scalars else np.int64
+        for result in [ser[1], ser.loc[1], ser.iloc[1], ser.at[1], ser.iat[1]]:
+            assert result == 2
+            assert type(result) is expected_type
+
+    def test_getitem_multiindex_scalar_key(self, using_python_scalars):
+        mi = pd.MultiIndex.from_tuples([("a", 1), ("b", 2)])
+        ser = Series([1.5, 2.5], index=mi)
+        expected_type = float if using_python_scalars else np.float64
+        for result in [ser[("a", 1)], ser.loc[("a", 1)], ser.at[("a", 1)]]:
+            assert result == 1.5
+            assert type(result) is expected_type
+
+    def test_getitem_multiindex_single_level(self, using_python_scalars):
+        # _get_value path where get_loc returns a slice of length one
+        mi = pd.MultiIndex.from_arrays([["a", "b"]])
+        ser = Series([1.5, 2.5], index=mi)
+        expected_type = float if using_python_scalars else np.float64
+        result = ser["a"]
+        assert result == 1.5
+        assert type(result) is expected_type
+
+    def test_getitem_object_dtype_preserves_numpy_scalars(self):
+        # GH#64266
+        value = np.int8(1)
+        ser = Series([value, np.int8(2)], dtype=object)
+        with pd.option_context("future.python_scalars", True):
+            for result in [ser[0], ser.loc[0], ser.iloc[0], ser.at[0], ser.iat[0]]:
+                assert result is value
+
+
 class TestGetitemDeprecatedIndexers:
     @pytest.mark.parametrize("key", [{1}, {1: 1}])
     def test_getitem_dict_and_set_deprecated(self, key):

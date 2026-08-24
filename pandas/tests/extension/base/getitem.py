@@ -1,6 +1,8 @@
 import numpy as np
 import pytest
 
+from pandas.core.dtypes.cast import maybe_unbox_numpy_scalar
+
 import pandas as pd
 import pandas._testing as tm
 
@@ -113,12 +115,16 @@ class BaseGetitemTests:
         result = df.iloc[-1]
         tm.assert_series_equal(result, expected)
 
-    def test_getitem_scalar(self, data):
+    def test_getitem_scalar(self, data, using_python_scalars):
         result = data[0]
         assert isinstance(result, data.dtype.type)
 
         result = pd.Series(data)[0]
-        assert isinstance(result, data.dtype.type)
+        if using_python_scalars and isinstance(data[0], np.generic):
+            expected_type = type(maybe_unbox_numpy_scalar(data[0], dtype=data.dtype))
+            assert type(result) is expected_type
+        else:
+            assert isinstance(result, data.dtype.type)
 
     def test_getitem_invalid(self, data):
         # TODO: box over scalar, [scalar], (scalar,)?
