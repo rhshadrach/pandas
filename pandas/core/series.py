@@ -1035,7 +1035,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
         -------
         scalar
         """
-        return maybe_unbox_numpy_scalar(self._values[i], dtype=self.dtype)
+        return maybe_unbox_numpy_scalar(self._values[i], dtype_object=self)
 
     def _slice(
         self, slobj: slice, axis: AxisInt = 0, new_index: Index | None = None
@@ -1145,20 +1145,20 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
         scalar value
         """
         if takeable:
-            return maybe_unbox_numpy_scalar(self._values[label], dtype=self.dtype)
+            return maybe_unbox_numpy_scalar(self._values[label], dtype_object=self)
 
         # Similar to Index.get_value, but we do not fall back to positional
         loc = self.index.get_loc(label)
 
         if is_integer(loc):
-            return maybe_unbox_numpy_scalar(self._values[loc], dtype=self.dtype)
+            return maybe_unbox_numpy_scalar(self._values[loc], dtype_object=self)
 
         if isinstance(self.index, MultiIndex):
             mi = self.index
             new_values = self._values[loc]
             if len(new_values) == 1 and mi.nlevels == 1:
                 # If more than one level left, we can not return a scalar
-                return maybe_unbox_numpy_scalar(new_values[0], dtype=self.dtype)
+                return maybe_unbox_numpy_scalar(new_values[0], dtype_object=self)
 
             new_index = mi[loc]
             new_index = maybe_droplevels(new_index, label)
@@ -2969,7 +2969,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
             return self._constructor(result, index=idx, name=self.name)
         else:
             # scalar
-            return maybe_unbox_numpy_scalar(result.iloc[0], dtype=self.dtype)
+            return maybe_unbox_numpy_scalar(result.iloc[0], dtype_object=self)
 
     def corr(
         self,
@@ -3059,7 +3059,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
             result = nanops.nancorr(
                 this_values, other_values, method=method, min_periods=min_periods
             )
-            result = maybe_unbox_numpy_scalar(result, dtype=self.dtype)
+            result = maybe_unbox_numpy_scalar(result, dtype_object=self)
             return result
 
         raise ValueError(
@@ -3115,7 +3115,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
         result = nanops.nancov(
             this_values, other_values, min_periods=min_periods, ddof=ddof
         )
-        result = maybe_unbox_numpy_scalar(result, dtype=self.dtype)
+        result = maybe_unbox_numpy_scalar(result, dtype_object=self)
         return result
 
     def describe(
@@ -3434,7 +3434,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
             result = np.dot(lvals, rvals)
         else:  # pragma: no cover
             raise TypeError(f"unsupported type: {type(other)}")
-        return maybe_unbox_numpy_scalar(result, dtype=self.dtype)
+        return maybe_unbox_numpy_scalar(result, dtype_object=self)
 
     def __matmul__(self, other):
         """
@@ -6284,7 +6284,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
         2    3
         dtype: int64
         """
-        return maybe_unbox_numpy_scalar(super().pop(item=item), dtype=self.dtype)
+        return maybe_unbox_numpy_scalar(super().pop(item=item), dtype_object=self)
 
     def info(
         self,
@@ -9000,7 +9000,7 @@ class Series(base.IndexOpsMixin, NDFrame):  # type: ignore[misc]
 
         # any/all coerce to bool for all dtypes, so unbox even for object
         result = maybe_unbox_numpy_scalar(
-            result, dtype=None if name in ["any", "all"] else self.dtype
+            result, dtype_object=None if name in ["any", "all"] else self
         )
         return result
 

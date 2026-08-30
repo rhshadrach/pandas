@@ -121,7 +121,7 @@ class BaseGetitemTests:
 
         result = pd.Series(data)[0]
         if using_python_scalars and isinstance(data[0], np.generic):
-            expected_type = type(maybe_unbox_numpy_scalar(data[0], dtype=data.dtype))
+            expected_type = type(maybe_unbox_numpy_scalar(data[0], dtype_object=data))
             assert type(result) is expected_type
         else:
             assert isinstance(result, data.dtype.type)

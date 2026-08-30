@@ -4436,7 +4436,7 @@ class DataFrame(NDFrame, OpsMixin):
         """
         if takeable:
             series = self._ixs(col, axis=1)
-            return maybe_unbox_numpy_scalar(series._values[index], dtype=series.dtype)
+            return maybe_unbox_numpy_scalar(series._values[index], dtype_object=series)
 
         series = self._get_item(col)
 
@@ -4445,7 +4445,7 @@ class DataFrame(NDFrame, OpsMixin):
             #  results if our categories are integers that dont match our codes
             # IntervalIndex: IntervalTree has no get_loc
             row = self.index.get_loc(index)
-            return maybe_unbox_numpy_scalar(series._values[row], dtype=series.dtype)
+            return maybe_unbox_numpy_scalar(series._values[row], dtype_object=series)
 
         # For MultiIndex going through engine effectively restricts us to
         #  same-length tuples; see test_get_set_value_no_partial_indexing
@@ -4455,7 +4455,7 @@ class DataFrame(NDFrame, OpsMixin):
             # e.g. partial string slicing on DatetimeIndex level;
             #  see GH#43395
             loc = self.index.get_loc(index)
-        return maybe_unbox_numpy_scalar(series._values[loc], dtype=series.dtype)
+        return maybe_unbox_numpy_scalar(series._values[loc], dtype_object=series)
 
     def isetitem(self, loc, value) -> None:
         """
@@ -16532,9 +16532,10 @@ class DataFrame(NDFrame, OpsMixin):
                 df = df.astype(dtype)
                 arr = concat_compat(list(df._iter_column_arrays()))
                 return arr._reduce(name, skipna=skipna, keepdims=False, **kwds)
+            values = df.values
             return maybe_unbox_numpy_scalar(
-                func(df.values),
-                dtype=None if name in ["any", "all"] else dtype,
+                func(values),
+                dtype_object=None if name in ["any", "all"] else values,
             )
         elif axis == 1:
             if len(df.index) == 0:
