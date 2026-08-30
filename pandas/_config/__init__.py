@@ -34,8 +34,11 @@ def using_string_dtype() -> bool:
     return _mode_options["infer_string"]
 
 
-# The "future" sub-dict of _global_config is created once at option
-# registration and only ever mutated in place, so the reference can be cached.
+# Performance: using_python_scalars is called on hot scalar-access paths
+# (e.g. Series._ixs, Series._get_value), and a function-level import costs
+# roughly ten times a dict lookup. The "future" sub-dict of _global_config is
+# created once at option registration and only ever mutated in place, so the
+# reference can be cached.
 _future_options: dict | None = None
 
 
