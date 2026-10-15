@@ -8,10 +8,15 @@ into the buffers of a new Arrow array. No intermediate list or object ndarray of
 the values is created, and the results are not converted from Python objects by
 pyarrow.
 
-All kernels take a single ``pyarrow.Array`` (one chunk) and return numpy arrays
-that the caller wraps with ``pyarrow.Array.from_buffers``. Bitmaps are returned
+All kernels take a single ``pyarrow.Array`` (one chunk). String results are
+returned as pyarrow arrays of the type of the chunk; other results as numpy
+arrays that the caller wraps with ``pyarrow.Array.from_buffers``. Bitmaps are
 packed, in Arrow's bit order. A validity bitmap is None when there are no nulls.
 """
+from cpython.pycapsule cimport (
+    PyCapsule_GetPointer,
+    PyCapsule_New,
+)
 from cpython.unicode cimport PyUnicode_DecodeUTF8
 from cython cimport Py_ssize_t
 from libc.stdint cimport (
@@ -21,13 +26,32 @@ from libc.stdint cimport (
     uint8_t,
     uintptr_t,
 )
-from libc.string cimport memcpy
+from libc.stdlib cimport (
+    free,
+    malloc,
+    realloc,
+)
+from libc.string cimport (
+    memcpy,
+    memset,
+)
 
 import numpy as np
 
 cimport numpy as cnp
 
+from pandas.compat.pyarrow import HAS_PYARROW
+
 cnp.import_array()
+
+cdef object _pa_foreign_buffer = None
+cdef object _pa_from_buffers = None
+
+if HAS_PYARROW:
+    import pyarrow as pa
+
+    _pa_foreign_buffer = pa.foreign_buffer
+    _pa_from_buffers = pa.Array.from_buffers
 
 
 cdef extern from "Python.h":
@@ -102,88 +126,150 @@ cdef inline str _get(const StringChunk* c, Py_ssize_t i):
     return PyUnicode_DecodeUTF8(c.data + start, stop - start, NULL)
 
 
-cdef object _pack_bits(cnp.ndarray[uint8_t, ndim=1] values):
-    return np.packbits(values, bitorder="little")
+cdef inline void _set_bit(uint8_t* bits, Py_ssize_t i) noexcept nogil:
+    bits[i >> 3] |= <uint8_t>(1 << (i & 7))
+
+
+cdef inline cnp.ndarray _new_bitmap(Py_ssize_t length):
+    # all bits 0
+    return np.zeros((length + 7) // 8, dtype=np.uint8)
 
 
 cdef object _input_validity(const StringChunk* c):
+    # the validity bitmap of `c`, offset to 0
     cdef:
         Py_ssize_t i
-        cnp.ndarray[uint8_t, ndim=1] valid
+        cnp.ndarray bitmap
+        uint8_t* bits
     if c.validity is NULL:
         return None
-    valid = np.empty(c.length, dtype=np.uint8)
+    bitmap = _new_bitmap(c.length)
+    bits = <uint8_t*>cnp.PyArray_DATA(bitmap)
     for i in range(c.length):
-        valid[i] = _is_valid(c, i)
-    return _pack_bits(valid)
+        if _is_valid(c, i):
+            _set_bit(bits, i)
+    return bitmap
+
+
+cdef void _free_malloc_capsule(object capsule) noexcept:
+    free(PyCapsule_GetPointer(capsule, NULL))
+
+
+cdef object _foreign_buffer(void* ptr, int64_t size):
+    # hand a malloc'd buffer to pyarrow, which frees it when no longer used
+    capsule = PyCapsule_New(ptr, NULL, _free_malloc_capsule)
+    return _pa_foreign_buffer(<uintptr_t>ptr, size, capsule)
 
 
 cdef class _StringBuilder:
     """
-    Accumulate strings into Arrow offsets, data and validity buffers.
+    Accumulate strings into the offsets, data and validity buffers of an Arrow
+    ``string`` or ``large_string`` array.
+
+    The buffers are malloc'd and move to pyarrow in `finish`; whatever has not
+    moved is freed with the builder, e.g. when the kernel filling it raises.
     """
     cdef:
-        cnp.ndarray data
-        cnp.ndarray offsets
-        cnp.ndarray valid
-        uint8_t* data_ptr
-        int64_t* offsets_ptr
-        uint8_t* valid_ptr
+        int32_t* offsets32  # NULL for large_string
+        int64_t* offsets64  # NULL for string
+        uint8_t* validity
+        char* data
         int64_t nbytes
+        int64_t data_capacity
         Py_ssize_t length
         Py_ssize_t capacity
         Py_ssize_t null_count
+        bint large
+        object pa_type
 
-    def __cinit__(self, Py_ssize_t capacity, int64_t nbytes_hint):
-        capacity = max(capacity, 1)
-        self.data = np.empty(max(nbytes_hint, 16), dtype=np.uint8)
-        self.offsets = np.empty(capacity + 1, dtype=np.int64)
-        self.valid = np.empty(capacity, dtype=np.uint8)
-        self.data_ptr = <uint8_t*>cnp.PyArray_DATA(self.data)
-        self.offsets_ptr = <int64_t*>cnp.PyArray_DATA(self.offsets)
-        self.valid_ptr = <uint8_t*>cnp.PyArray_DATA(self.valid)
-        self.offsets_ptr[0] = 0
-        self.nbytes = 0
-        self.length = 0
-        self.capacity = capacity
-        self.null_count = 0
+    def __cinit__(self, object pa_type, Py_ssize_t capacity, int64_t nbytes_hint):
+        self.pa_type = pa_type
+        self.large = str(pa_type) == "large_string"
+        self.capacity = max(capacity, 1)
+        self.data_capacity = max(nbytes_hint, 16)
+        if self.large:
+            self.offsets64 = <int64_t*>malloc((self.capacity + 1) * sizeof(int64_t))
+            if self.offsets64 is NULL:
+                raise MemoryError()
+            self.offsets64[0] = 0
+        else:
+            self.offsets32 = <int32_t*>malloc((self.capacity + 1) * sizeof(int32_t))
+            if self.offsets32 is NULL:
+                raise MemoryError()
+            self.offsets32[0] = 0
+        # all valid until a null clears its bit
+        self.validity = <uint8_t*>malloc((self.capacity + 7) // 8)
+        self.data = <char*>malloc(self.data_capacity)
+        if self.validity is NULL or self.data is NULL:
+            raise MemoryError()
+        memset(self.validity, 0xFF, (self.capacity + 7) // 8)
+
+    def __dealloc__(self):
+        free(self.offsets32)
+        free(self.offsets64)
+        free(self.validity)
+        free(self.data)
 
     cdef int _reserve_slot(self) except -1:
-        cdef Py_ssize_t new_capacity
+        cdef:
+            Py_ssize_t capacity = 2 * self.capacity
+            Py_ssize_t nbytes = (self.capacity + 7) // 8
+            Py_ssize_t new_nbytes = (capacity + 7) // 8
+            void* grown
         if self.length < self.capacity:
             return 0
-        new_capacity = 2 * self.capacity
-        offsets = np.empty(new_capacity + 1, dtype=np.int64)
-        offsets[: self.length + 1] = self.offsets[: self.length + 1]
-        valid = np.empty(new_capacity, dtype=np.uint8)
-        valid[: self.length] = self.valid[: self.length]
-        self.offsets = offsets
-        self.valid = valid
-        self.offsets_ptr = <int64_t*>cnp.PyArray_DATA(self.offsets)
-        self.valid_ptr = <uint8_t*>cnp.PyArray_DATA(self.valid)
-        self.capacity = new_capacity
+        if self.large:
+            grown = realloc(self.offsets64, (capacity + 1) * sizeof(int64_t))
+            if grown is NULL:
+                raise MemoryError()
+            self.offsets64 = <int64_t*>grown
+        else:
+            grown = realloc(self.offsets32, (capacity + 1) * sizeof(int32_t))
+            if grown is NULL:
+                raise MemoryError()
+            self.offsets32 = <int32_t*>grown
+        grown = realloc(self.validity, new_nbytes)
+        if grown is NULL:
+            raise MemoryError()
+        self.validity = <uint8_t*>grown
+        memset(self.validity + nbytes, 0xFF, new_nbytes - nbytes)
+        self.capacity = capacity
         return 0
 
     cdef int _reserve_bytes(self, int64_t n) except -1:
-        cdef int64_t size = cnp.PyArray_SIZE(self.data)
-        if self.nbytes + n <= size:
+        cdef:
+            int64_t capacity
+            void* grown
+        if self.nbytes + n <= self.data_capacity:
             return 0
-        size = max(2 * size, self.nbytes + n)
-        data = np.empty(size, dtype=np.uint8)
-        data[: self.nbytes] = self.data[: self.nbytes]
-        self.data = data
-        self.data_ptr = <uint8_t*>cnp.PyArray_DATA(self.data)
+        if not self.large and self.nbytes + n > INT32_MAX:
+            raise OverflowError(
+                "result does not fit in a string array; use large_string"
+            )
+        capacity = max(2 * self.data_capacity, self.nbytes + n)
+        if not self.large:
+            capacity = min(capacity, <int64_t>INT32_MAX)
+        grown = realloc(self.data, capacity)
+        if grown is NULL:
+            raise MemoryError()
+        self.data = <char*>grown
+        self.data_capacity = capacity
         return 0
+
+    cdef inline void _end_value(self) noexcept:
+        self.length += 1
+        if self.large:
+            self.offsets64[self.length] = self.nbytes
+        else:
+            self.offsets32[self.length] = <int32_t>self.nbytes
 
     cdef int append_bytes(self, const char* buf, int64_t n) except -1:
         self._reserve_slot()
         if n > 0:
             self._reserve_bytes(n)
-            memcpy(self.data_ptr + self.nbytes, buf, n)
+            memcpy(self.data + self.nbytes, buf, n)
             self.nbytes += n
-        self.valid_ptr[self.length] = 1
-        self.length += 1
-        self.offsets_ptr[self.length] = self.nbytes
+        self._end_value()
         return 0
 
     cdef int append_str(self, object value) except -1:
@@ -200,27 +286,44 @@ cdef class _StringBuilder:
 
     cdef int append_null(self) except -1:
         self._reserve_slot()
-        self.valid_ptr[self.length] = 0
-        self.length += 1
-        self.offsets_ptr[self.length] = self.nbytes
+        self.validity[self.length >> 3] &= <uint8_t>~(1 << (self.length & 7))
         self.null_count += 1
+        self._end_value()
         return 0
 
-    cdef tuple finish(self, bint large):
+    cdef object finish(self):
         """
-        Return (validity, offsets, data); offsets are int32 unless `large`.
+        Move the buffers to a pyarrow array; can be called only once.
         """
-        offsets = self.offsets[: self.length + 1]
-        if not large:
-            if self.nbytes > INT32_MAX:
-                raise OverflowError(
-                    "result does not fit in a string array; use large_string"
-                )
-            offsets = offsets.astype(np.int32)
+        cdef void* ptr
+        if self.data is NULL:
+            raise RuntimeError("finish() may only be called once")
+
+        if self.large:
+            ptr = self.offsets64
+            self.offsets64 = NULL
+            offsets = _foreign_buffer(ptr, (self.length + 1) * sizeof(int64_t))
+        else:
+            ptr = self.offsets32
+            self.offsets32 = NULL
+            offsets = _foreign_buffer(ptr, (self.length + 1) * sizeof(int32_t))
+
         validity = None
         if self.null_count > 0:
-            validity = _pack_bits(self.valid[: self.length])
-        return validity, offsets, self.data[: self.nbytes]
+            ptr = self.validity
+            self.validity = NULL
+            validity = _foreign_buffer(ptr, (self.length + 7) // 8)
+
+        ptr = self.data
+        self.data = NULL
+        data = _foreign_buffer(ptr, self.nbytes)
+
+        return _pa_from_buffers(
+            self.pa_type,
+            self.length,
+            [validity, offsets, data],
+            null_count=self.null_count,
+        )
 
 
 cdef int64_t _data_nbytes(const StringChunk* c) noexcept nogil:
@@ -254,12 +357,13 @@ def search(object chunk, object func):
     cdef:
         StringChunk c = _unpack(chunk)
         Py_ssize_t i
-        cnp.ndarray[uint8_t, ndim=1] values = np.zeros(c.length, dtype=np.uint8)
+        cnp.ndarray values = _new_bitmap(c.length)
+        uint8_t* bits = <uint8_t*>cnp.PyArray_DATA(values)
 
     for i in range(c.length):
-        if _is_valid(&c, i):
-            values[i] = func(_get(&c, i)) is not None
-    return _input_validity(&c), _pack_bits(values)
+        if _is_valid(&c, i) and func(_get(&c, i)) is not None:
+            _set_bit(bits, i)
+    return _input_validity(&c), values
 
 
 def count(object chunk, object func):
@@ -291,7 +395,7 @@ def count(object chunk, object func):
     return _input_validity(&c), values
 
 
-def map_str(object chunk, object func, bint large):
+def map_str(object chunk, object func):
     """
     Evaluate ``func(value)`` for each value, where `func` returns a str or None.
 
@@ -304,22 +408,19 @@ def map_str(object chunk, object func, bint large):
         Array of type string or large_string.
     func : callable
         E.g. ``functools.partial(compiled.sub, repl, count=n)``.
-    large : bool
-        Whether to return int64 offsets (large_string) instead of int32.
 
     Returns
     -------
-    validity : ndarray[uint8] or None
-        Packed validity bitmap; null where `chunk` is null or `func` returned None.
-    offsets : ndarray[int32] or ndarray[int64]
-    data : ndarray[uint8]
+    pyarrow.Array
+        Of the type of `chunk`; null where `chunk` is null or `func` returned
+        None.
     """
     cdef:
         StringChunk c = _unpack(chunk)
         Py_ssize_t i
         int64_t start, stop
         str value
-        _StringBuilder builder = _StringBuilder(c.length, _data_nbytes(&c))
+        _StringBuilder builder = _StringBuilder(chunk.type, c.length, _data_nbytes(&c))
 
     for i in range(c.length):
         if not _is_valid(&c, i):
@@ -334,10 +435,10 @@ def map_str(object chunk, object func, bint large):
             builder.append_bytes(c.data + start, stop - start)
         else:
             builder.append_str(result)
-    return builder.finish(large)
+    return builder.finish()
 
 
-def extract(object chunk, object func, Py_ssize_t ngroups, bint large):
+def extract(object chunk, object func, Py_ssize_t ngroups):
     """
     Collect the groups of ``func(value)`` for each value.
 
@@ -349,21 +450,21 @@ def extract(object chunk, object func, Py_ssize_t ngroups, bint large):
         The ``search`` method of a compiled pattern with `ngroups` groups.
     ngroups : int
         Number of groups of the pattern.
-    large : bool
-        Whether to return int64 offsets (large_string) instead of int32.
 
     Returns
     -------
-    list of (validity, offsets, data)
-        One entry per group, as returned by :func:`map_str`. A group is null
-        where `chunk` is null, `func` found no match, or the group did not
+    list of pyarrow.Array
+        One array per group, of the type of `chunk`. A group is null where
+        `chunk` is null, `func` found no match, or the group did not
         participate in the match.
     """
     cdef:
         StringChunk c = _unpack(chunk)
         Py_ssize_t i, k
         int64_t nbytes = _data_nbytes(&c) // max(ngroups, 1)
-        list builders = [_StringBuilder(c.length, nbytes) for _ in range(ngroups)]
+        list builders = [
+            _StringBuilder(chunk.type, c.length, nbytes) for _ in range(ngroups)
+        ]
         _StringBuilder builder
         tuple groups
 
@@ -383,11 +484,11 @@ def extract(object chunk, object func, Py_ssize_t ngroups, bint large):
                 builder.append_str(group)
     results = []
     for k in range(ngroups):
-        results.append((<_StringBuilder>builders[k]).finish(large))
+        results.append((<_StringBuilder>builders[k]).finish())
     return results
 
 
-def map_str_list(object chunk, object func, bint large):
+def map_str_list(object chunk, object func):
     """
     Evaluate ``func(value)`` for each value, where `func` returns a list whose
     elements are str or None.
@@ -398,26 +499,23 @@ def map_str_list(object chunk, object func, bint large):
         Array of type string or large_string.
     func : callable
         E.g. the ``findall`` or ``split`` method of a compiled pattern.
-    large : bool
-        Whether to return int64 offsets for the strings (large_string) instead
-        of int32. The list offsets are always int32.
 
     Returns
     -------
     validity : ndarray[uint8] or None
         Packed validity bitmap of the lists; that of `chunk`, offset to 0.
     list_offsets : ndarray[int32]
-    child : tuple of (validity, offsets, data)
-        The list elements, as returned by :func:`map_str`.
+    child : pyarrow.Array
+        The list elements, of the type of `chunk`.
     """
     cdef:
         StringChunk c = _unpack(chunk)
         Py_ssize_t i
         int64_t n = 0
-        cnp.ndarray[int64_t, ndim=1] list_offsets = np.empty(
-            c.length + 1, dtype=np.int64
+        cnp.ndarray[int32_t, ndim=1] list_offsets = np.empty(
+            c.length + 1, dtype=np.int32
         )
-        _StringBuilder child = _StringBuilder(c.length, _data_nbytes(&c))
+        _StringBuilder child = _StringBuilder(chunk.type, c.length, _data_nbytes(&c))
         list items
 
     list_offsets[0] = 0
@@ -430,8 +528,7 @@ def map_str_list(object chunk, object func, bint large):
                 else:
                     child.append_str(item)
             n += len(items)
-        list_offsets[i + 1] = n
-
-    if n > INT32_MAX:
-        raise OverflowError("result does not fit in a list array")
-    return _input_validity(&c), list_offsets.astype(np.int32), child.finish(large)
+            if n > INT32_MAX:
+                raise OverflowError("result does not fit in a list array")
+        list_offsets[i + 1] = <int32_t>n
+    return _input_validity(&c), list_offsets, child.finish()

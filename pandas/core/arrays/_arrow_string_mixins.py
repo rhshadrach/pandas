@@ -31,27 +31,11 @@ if HAS_PYARROW:
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from pandas._typing import (
-        Scalar,
-        npt,
-    )
+    from pandas._typing import Scalar
 
 
 def _py_buffer(arr: np.ndarray | None) -> pa.Buffer | None:
     return None if arr is None else pa.py_buffer(arr)
-
-
-def _string_array(
-    pa_type: pa.DataType,
-    length: int,
-    buffers: tuple[npt.NDArray[np.uint8] | None, np.ndarray, npt.NDArray[np.uint8]],
-) -> pa.Array:
-    validity, offsets, data = buffers
-    return pa.Array.from_buffers(
-        pa_type,
-        length,
-        [_py_buffer(validity), pa.py_buffer(offsets), pa.py_buffer(data)],
-    )
 
 
 class ArrowStringArrayMixin:
@@ -107,29 +91,21 @@ class ArrowStringArrayMixin:
         return pa.chunked_array(chunks, type=pa_type)
 
     def _re_map_str(self, func: Callable[[str], str | None]) -> pa.ChunkedArray:
-        pa_type = self._pa_array.type
-        large = pa.types.is_large_string(pa_type)
         chunks = [
-            _string_array(pa_type, len(chunk), arrow_regex.map_str(chunk, func, large))
-            for chunk in self._pa_array.iterchunks()
+            arrow_regex.map_str(chunk, func) for chunk in self._pa_array.iterchunks()
         ]
-        return pa.chunked_array(chunks, type=pa_type)
+        return pa.chunked_array(chunks, type=self._pa_array.type)
 
     def _re_extract(self, compiled: re.Pattern[str]) -> list[pa.ChunkedArray]:
         # one array per group of `compiled`
-        pa_type = self._pa_array.type
-        large = pa.types.is_large_string(pa_type)
         per_chunk = [
-            [
-                _string_array(pa_type, len(chunk), buffers)
-                for buffers in arrow_regex.extract(
-                    chunk, compiled.search, compiled.groups, large
-                )
-            ]
+            arrow_regex.extract(chunk, compiled.search, compiled.groups)
             for chunk in self._pa_array.iterchunks()
         ]
         return [
-            pa.chunked_array([chunks[k] for chunks in per_chunk], type=pa_type)
+            pa.chunked_array(
+                [groups[k] for groups in per_chunk], type=self._pa_array.type
+            )
             for k in range(compiled.groups)
         ]
 
@@ -137,13 +113,9 @@ class ArrowStringArrayMixin:
         self, func: Callable[[str], list[str | None]]
     ) -> pa.ChunkedArray:
         pa_type = self._pa_array.type
-        large = pa.types.is_large_string(pa_type)
         chunks = []
         for chunk in self._pa_array.iterchunks():
-            validity, list_offsets, child_buffers = arrow_regex.map_str_list(
-                chunk, func, large
-            )
-            child = _string_array(pa_type, len(child_buffers[1]) - 1, child_buffers)
+            validity, list_offsets, child = arrow_regex.map_str_list(chunk, func)
             chunks.append(
                 pa.Array.from_buffers(
                     pa.list_(pa_type),
