@@ -33,6 +33,30 @@ if TYPE_CHECKING:
     )
 
 
+def compile_match_pattern(
+    pat: str | re.Pattern[str], case: bool, flags: int
+) -> re.Pattern[str]:
+    """
+    Compile the pattern of ``Series.str.match``.
+    """
+    if not case:
+        flags |= re.IGNORECASE
+
+    if isinstance(pat, re.Pattern):
+        # pat already carries its own flags. IGNORECASE is the only one we
+        #  can contribute (via `case`), so it is the only bit we compare,
+        #  and only in the direction that would *add* it: a pat that is
+        #  already case-insensitive, e.g. via an inline "(?i)", is honored
+        #  as written. Comparing the full flag set would reject a pat
+        #  compiled with e.g. re.MULTILINE (GH#63108).
+        if flags & ~re.IGNORECASE:
+            raise ValueError("Cannot pass flags in addition to an already-compiled pat")
+        if flags & re.IGNORECASE and not pat.flags & re.IGNORECASE:
+            raise ValueError("Cannot pass flags that do not match pat.flags")
+        return pat
+    return re.compile(pat, flags=flags)
+
+
 class ObjectStringArrayMixin:
     """
     String Methods operating on object-dtype ndarrays.
@@ -237,26 +261,7 @@ class ObjectStringArrayMixin:
         flags: int = 0,
         na: Scalar | lib.NoDefault = lib.no_default,
     ):
-        if not case:
-            flags |= re.IGNORECASE
-
-        if isinstance(pat, re.Pattern):
-            # pat already carries its own flags. IGNORECASE is the only one we
-            #  can contribute (via `case`), so it is the only bit we compare,
-            #  and only in the direction that would *add* it: a pat that is
-            #  already case-insensitive, e.g. via an inline "(?i)", is honored
-            #  as written. Comparing the full flag set would reject a pat
-            #  compiled with e.g. re.MULTILINE (GH#63108).
-            if flags & ~re.IGNORECASE:
-                raise ValueError(
-                    "Cannot pass flags in addition to an already-compiled pat"
-                )
-            if flags & re.IGNORECASE and not pat.flags & re.IGNORECASE:
-                raise ValueError("Cannot pass flags that do not match pat.flags")
-            regex = pat
-        else:
-            regex = re.compile(pat, flags=flags)
-
+        regex = compile_match_pattern(pat, case, flags)
         f = lambda x: regex.match(x) is not None
         return self._str_map(f, na_value=na, dtype=np.dtype(bool))
 

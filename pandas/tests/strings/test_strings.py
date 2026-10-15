@@ -11,7 +11,6 @@ from pandas.compat import pa_version_under21p0
 
 import pandas as pd
 import pandas._testing as tm
-from pandas.core.arrays._arrow_string_mixins import ArrowStringArrayMixin
 from pandas.core.strings.accessor import StringMethods
 from pandas.tests.strings import is_object_or_nan_string_dtype
 
@@ -94,15 +93,11 @@ def test_count_end_of_string(any_string_dtype):
 
     # with dollar sign
     result = ser.str.count("bar$")
-    if any_string_dtype == "string" and any_string_dtype.storage == "pyarrow":
-        # pyarrow (RE2) only matches $ at the very end of the line
-        expected = pd.Series([0, 1, 0, 0], dtype=expected_dtype)
-    else:
-        # python matches $ before or after an ending newline
-        expected = pd.Series([0, 1, 0, 1], dtype=expected_dtype)
+    # python matches $ before or after an ending newline
+    expected = pd.Series([0, 1, 0, 1], dtype=expected_dtype)
     tm.assert_series_equal(result, expected)
 
-    # with \Z (ensure this is translated to \z for pyarrow)
+    # with \Z
     result = ser.str.count(r"bar\Z")
     expected = pd.Series([0, 1, 0, 0], dtype=expected_dtype)
     tm.assert_series_equal(result, expected)
@@ -966,43 +961,3 @@ def test_setitem_with_different_string_storage():
     ser_python[1:4] = ser_pyarrow
     expected = pd.Series(["a", "X", "Y", pd.NA, "e"], dtype="string[python]")
     tm.assert_series_equal(ser_python, expected)
-
-
-@pytest.mark.parametrize(
-    "pat, expected",
-    [
-        # lookaround assertions
-        (r"(?=abc)", True),
-        (r"(?<=123)", True),
-        (r"(?!xyz)", True),
-        (r"(?<!\d)", True),
-        (r"(?=a|b)(?<=c)", True),
-        (r"abc", False),
-        (r"\d+", False),
-        (r"(abc)", False),
-        (r"a|b", False),
-        (r"a*", False),
-        (r"", False),
-        (r"\\(?=abc)", True),
-        (r"(?=.*[A-Z])", True),
-        (r"a(?=)", True),
-        (r"(?![0-9])", True),
-        (r"(?=(?!nested))", True),
-        (r"test\(\?\=ing\)", False),
-        (r"[(?=)]", False),
-        (r"(?#(?=comment)", False),
-        (r"(test # (?=comment))", True),
-        (r"(?=test)+", False),
-        (r"(?=test)*", False),
-        (r"(?=test)?", False),
-        (r"abc|(?=test)", True),
-        (r"^(?=test)$", True),
-        # backreferences
-        (r"(abc)\1", True),
-        (r"\b(\w+)\s+\1\b", True),
-        (r"\b(?P<word>\w+)\s+(?P=word)\b", True),
-    ],
-)
-def test_has_regex_unsupported_code(pat, expected):
-    # https://github.com/pandas-dev/pandas/issues/60833
-    assert ArrowStringArrayMixin._has_unsupported_regex(pat) == expected

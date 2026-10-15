@@ -1647,8 +1647,7 @@ class StringMethods(NoNewAttributesMixin):
             elif flags & ~(re.IGNORECASE | re.UNICODE):
                 # Only pre-compile when `flags` carries something `case` cannot.
                 #  Leaving `pat` a str otherwise keeps `flags=0` equivalent to
-                #  omitting `flags`, so patterns using RE2 syntax that `re`
-                #  rejects still reach the pyarrow kernels. GH#63108
+                #  omitting `flags`. GH#63108
                 pat = re.compile(pat, flags=flags)
         # Any `flags` are now carried by `case` or baked into `pat`, so set
         #  flags=0 to ensure that when we call re.compile(pat, flags=flags)

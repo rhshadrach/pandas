@@ -100,6 +100,7 @@ libs_sources = {
         'deps': [_khash_primitive_helper_dep, m_dep, moments_simd_dep],
     },
     'arrays': {'sources': ['arrays.pyx']},
+    'arrow_regex': {'sources': ['arrow_regex.pyx']},
     'groupby': {'sources': ['groupby.pyx'], 'deps': [m_dep]},
     'hashing': {'sources': ['hashing.pyx']},
     'hashtable': {
@@ -209,6 +210,7 @@ sources_to_install = [
     '__init__.py',
     'algos.pyi',
     'arrays.pyi',
+    'arrow_regex.pyi',
     'byteswap.pyi',
     'groupby.pyi',
     'hashing.pyi',

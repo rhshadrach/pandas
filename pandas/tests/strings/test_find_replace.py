@@ -279,16 +279,10 @@ def test_contains_compiled_regex(any_string_dtype):
     expected = pd.Series([False, True, False], dtype=expected_dtype)
     tm.assert_series_equal(result, expected)
 
-    # TODO this currently works for pyarrow-backed dtypes but raises for python
-    if any_string_dtype == "string" and any_string_dtype.storage == "pyarrow":
-        result = ser.str.contains(pat, case=False)
-        expected = pd.Series([False, True, True], dtype=expected_dtype)
-        tm.assert_series_equal(result, expected)
-    else:
-        with pytest.raises(
-            ValueError, match="cannot process flags argument with a compiled pattern"
-        ):
-            ser.str.contains(pat, case=False)
+    with pytest.raises(
+        ValueError, match="cannot process flags argument with a compiled pattern"
+    ):
+        ser.str.contains(pat, case=False)
 
     pat = re.compile("ba.", flags=re.IGNORECASE)
     result = ser.str.contains(pat)
@@ -378,15 +372,11 @@ def test_contains_end_of_string(any_string_dtype):
 
     # with dollar sign
     result = ser.str.contains("bar$")
-    if any_string_dtype == "string" and any_string_dtype.storage == "pyarrow":
-        # pyarrow (RE2) only matches $ at the very end of the line
-        expected = pd.Series([False, True, False, False], dtype=expected_dtype)
-    else:
-        # python matches $ before or after an ending newline
-        expected = pd.Series([False, True, False, True], dtype=expected_dtype)
+    # python matches $ before or after an ending newline
+    expected = pd.Series([False, True, False, True], dtype=expected_dtype)
     tm.assert_series_equal(result, expected)
 
-    # with \Z (ensure this is translated to \z for pyarrow)
+    # with \Z
     result = ser.str.contains(r"bar\Z")
     expected = pd.Series([False, True, False, False], dtype=expected_dtype)
     tm.assert_series_equal(result, expected)
@@ -754,50 +744,16 @@ def test_replace_named_groups_regex_swap(
 )
 @pytest.mark.parametrize("use_compile", [True, False])
 def test_replace_named_groups_regex_swap_expected_fail(
-    any_string_dtype, repl, use_compile, request
+    any_string_dtype, repl, use_compile
 ):
     # GH#57636
-    if (
-        not use_compile
-        and r"\g" not in repl
-        and isinstance(any_string_dtype, pd.StringDtype)
-        and any_string_dtype.storage == "pyarrow"
-    ):
-        # calls pyarrow method directly
-        if repl == r"\20":
-            mark = pytest.mark.xfail(reason="PyArrow interprets as group + literal")
-            request.applymarker(mark)
-
-        pa = pytest.importorskip("pyarrow")
-        error_type = pa.ArrowInvalid
-        error_msg = r"only has \d parenthesized subexpressions"
-    else:
-        error_type = re.error
-        error_msg = "invalid group reference"
-
     pattern = r"(?P<one>\w+) (?P<two>\w+) (?P<three>\w+)"
     if use_compile:
         pattern = re.compile(pattern)
     ser = pd.Series(["One Two Three", "Foo Bar Baz"], dtype=any_string_dtype)
 
-    with pytest.raises(error_type, match=error_msg):
+    with pytest.raises(re.error, match="invalid group reference"):
         ser.str.replace(pattern, repl, regex=True)
-
-
-@pytest.mark.parametrize(
-    "pattern, repl",
-    [
-        (r"(\w+) (\w+) (\w+)", r"\20"),
-        (r"(?P<one>\w+) (?P<two>\w+) (?P<three>\w+)", r"\20"),
-    ],
-)
-def test_pyarrow_ambiguous_group_references(pyarrow_string_dtype, pattern, repl):
-    # GH#62653
-    ser = pd.Series(["One Two Three", "Foo Bar Baz"], dtype=pyarrow_string_dtype)
-
-    result = ser.str.replace(pattern, repl, regex=True)
-    expected = pd.Series(["Two0", "Bar0"], dtype=pyarrow_string_dtype)
-    tm.assert_series_equal(result, expected)
 
 
 @pytest.mark.parametrize(
@@ -1043,15 +999,11 @@ def test_replace_end_of_string(any_string_dtype):
 
     # with dollar sign
     result = ser.str.replace("bar$", "x", regex=True)
-    if any_string_dtype == "string" and any_string_dtype.storage == "pyarrow":
-        # pyarrow (RE2) only matches $ at the very end of the line
-        expected = pd.Series(["baz", "x", "bars", "bar\n"], dtype=any_string_dtype)
-    else:
-        # python matches $ before or after an ending newline
-        expected = pd.Series(["baz", "x", "bars", "x\n"], dtype=any_string_dtype)
+    # python matches $ before or after an ending newline
+    expected = pd.Series(["baz", "x", "bars", "x\n"], dtype=any_string_dtype)
     tm.assert_series_equal(result, expected)
 
-    # with \Z (ensure this is translated to \z for pyarrow)
+    # with \Z
     result = ser.str.replace(r"bar\Z", "x", regex=True)
     expected = pd.Series(["baz", "x", "bars", "bar\n"], dtype=any_string_dtype)
     tm.assert_series_equal(result, expected)
@@ -1259,8 +1211,7 @@ def test_match_non_ignorecase_flags_applied(any_string_dtype):
     result = values.str.match("a.c", flags=re.DOTALL)
     tm.assert_series_equal(result, pd.Series([True, False], dtype=expected_dtype))
 
-    # same via a compiled pat, which for arrow-backed dtypes takes the object
-    #  fallback rather than the pyarrow kernel
+    # same via a compiled pat
     result = values.str.match(re.compile("a.c", re.DOTALL))
     tm.assert_series_equal(result, pd.Series([True, False], dtype=expected_dtype))
 
@@ -1334,14 +1285,15 @@ def test_match_inline_ascii_flag():
 
 
 def test_match_re2_pattern_flags_zero():
-    # GH#63108 flags=0 is the documented default, so it must not route the
-    #  pattern through `re`, which rejects RE2 syntax pyarrow accepts
+    # GH#63108 flags=0 is the documented default and must not change how the
+    #  pattern is parsed; RE2-only syntax is rejected by `re` either way
     pytest.importorskip("pyarrow")
     values = pd.Series(["ab", "cd"], dtype="string[pyarrow]")
-    expected = pd.Series([True, False], dtype="boolean")
 
-    tm.assert_series_equal(values.str.match(r"\p{L}b"), expected)
-    tm.assert_series_equal(values.str.match(r"\p{L}b", flags=0), expected)
+    with pytest.raises(re.error, match="bad escape"):
+        values.str.match(r"\p{L}b")
+    with pytest.raises(re.error, match="bad escape"):
+        values.str.match(r"\p{L}b", flags=0)
 
 
 def test_match_arrow_dtype_flags():
@@ -1444,15 +1396,11 @@ def test_match_end_of_string(any_string_dtype):
 
     # with dollar sign
     result = ser.str.match("bar$")
-    if any_string_dtype == "string" and any_string_dtype.storage == "pyarrow":
-        # pyarrow (RE2) only matches $ at the very end of the line
-        expected = pd.Series([False, True, False, False], dtype=expected_dtype)
-    else:
-        # python matches $ before or after an ending newline
-        expected = pd.Series([False, True, False, True], dtype=expected_dtype)
+    # python matches $ before or after an ending newline
+    expected = pd.Series([False, True, False, True], dtype=expected_dtype)
     tm.assert_series_equal(result, expected)
 
-    # with \Z (ensure this is translated to \z for pyarrow)
+    # with \Z
     result = ser.str.match(r"bar\Z")
     expected = pd.Series([False, True, False, False], dtype=expected_dtype)
     tm.assert_series_equal(result, expected)
@@ -1545,16 +1493,10 @@ def test_fullmatch_compiled_regex(any_string_dtype):
     expected = pd.Series([True, False, False, False], dtype=expected_dtype)
     tm.assert_series_equal(result, expected)
 
-    # TODO this currently works for pyarrow-backed dtypes but raises for python
-    if any_string_dtype == "string" and any_string_dtype.storage == "pyarrow":
-        result = values.str.fullmatch(re.compile("ab"), case=False)
-        expected = pd.Series([True, True, False, False], dtype=expected_dtype)
-        tm.assert_series_equal(result, expected)
-    else:
-        with pytest.raises(
-            ValueError, match="cannot process flags argument with a compiled pattern"
-        ):
-            values.str.fullmatch(re.compile("ab"), case=False)
+    with pytest.raises(
+        ValueError, match="cannot process flags argument with a compiled pattern"
+    ):
+        values.str.fullmatch(re.compile("ab"), case=False)
 
     result = values.str.fullmatch(re.compile("ab", flags=re.IGNORECASE))
     expected = pd.Series([True, True, False, False], dtype=expected_dtype)
@@ -1640,7 +1582,7 @@ def test_fullmatch_end_of_string(any_string_dtype):
     expected = pd.Series([False, True, False, False], dtype=expected_dtype)
     tm.assert_series_equal(result, expected)
 
-    # with \Z (ensure this is translated to \z for pyarrow)
+    # with \Z
     result = ser.str.fullmatch(r"bar\Z")
     tm.assert_series_equal(result, expected)
 
@@ -1732,7 +1674,7 @@ def test_findall_end_of_string(any_string_dtype):
     expected = pd.Series([[], ["bar"], [], ["bar"]], dtype=object)
     tm.assert_series_equal(result, expected)
 
-    # with \Z (ensure this is translated to \z for pyarrow)
+    # with \Z
     result = ser.str.findall(r"bar\Z")
     expected = pd.Series([[], ["bar"], [], []], dtype=object)
     tm.assert_series_equal(result, expected)

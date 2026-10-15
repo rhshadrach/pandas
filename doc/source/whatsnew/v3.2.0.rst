@@ -90,6 +90,7 @@ Other API changes
 ^^^^^^^^^^^^^^^^^
 - :class:`.Styler` now displays missing float values as ``NaN`` rather than ``nan`` by default, matching :class:`DataFrame` (:issue:`12710`)
 - :class:`Index` now displays missing float values as ``NaN`` rather than ``nan`` in its repr, matching :class:`Series` and :class:`DataFrame` (:issue:`64733`)
+- The regular expression methods of the ``.str`` accessor (``contains``, ``match``, ``fullmatch``, ``count``, ``replace``, ``split``, ``findall`` and ``extract``) on pyarrow-backed string dtypes now always evaluate the pattern with Python's :mod:`re` module instead of pyarrow's RE2 engine, so the results are the same as for ``object`` dtype. For example, ``\w``, ``\d``, ``\s`` and ``\b`` now match non-ASCII characters, and ``$`` matches before a trailing newline. Patterns that use syntax only RE2 accepts, such as ``\p{L}`` or ``\x{e9}``, now raise ``re.error``. :meth:`Series.str.extract` on :class:`ArrowDtype` data no longer requires named groups (:issue:`63683`)
 
 .. ---------------------------------------------------------------------------
 .. _whatsnew_320.deprecations:
