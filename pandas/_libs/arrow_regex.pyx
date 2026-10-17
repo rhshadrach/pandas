@@ -103,6 +103,8 @@ cdef inline bint _is_valid(const StringChunk* c, Py_ssize_t i) noexcept nogil:
     if c.validity is NULL:
         return True
     j = c.offset + i
+    # Gets the proper bit from the validity buffer, equivalent to
+    #  (c.validity[j // 8] >> (j % 8)) % 2
     return (c.validity[j >> 3] >> (j & 7)) & 1
 
 
