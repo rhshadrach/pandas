@@ -15,8 +15,6 @@ from typing import (
 
 import numpy as np
 
-from pandas._config import using_python_scalars
-
 from pandas._libs import lib
 from pandas._libs.ops_dispatch import maybe_dispatch_ufunc_to_dunder_op
 
@@ -377,6 +375,9 @@ def array_ufunc(self, ufunc: np.ufunc, method: str, *inputs: Any, **kwargs: Any)
     else:
         reconstruct_kwargs = {}
 
+    # the ndarray a DataFrame was converted to, when the ufunc ran on one
+    frame_values: np.ndarray | None = None
+
     def reconstruct(result):
         if ufunc.nout > 1:
             # np.modf, np.frexp, np.divmod
@@ -391,12 +392,10 @@ def array_ufunc(self, ufunc: np.ufunc, method: str, *inputs: Any, **kwargs: Any)
             #  Python object
             if self.ndim == 1:
                 return maybe_unbox_numpy_scalar(result, object_with_dtype=self)
-            if (
-                isinstance(result, np.generic)
-                and using_python_scalars()
-                and not any(blk.dtype.kind == "O" for blk in self._mgr.blocks)
-            ):
-                return maybe_unbox_numpy_scalar(result)
+            if frame_values is not None:
+                # match DataFrame._reduce with axis=None: decide on the dtype of
+                #  the array that was reduced, not the column dtypes
+                return maybe_unbox_numpy_scalar(result, object_with_dtype=frame_values)
             return result
 
         if result.ndim != self.ndim:
@@ -460,7 +459,10 @@ def array_ufunc(self, ufunc: np.ufunc, method: str, *inputs: Any, **kwargs: Any)
     else:
         # otherwise specific ufunc methods (eg np.<ufunc>.accumulate(..))
         # Those can have an axis keyword and thus can't be called block-by-block
-        result = default_array_ufunc(inputs[0], ufunc, method, *inputs, **kwargs)  # pyright: ignore[reportGeneralTypeIssues]
+        # self is the only input: two-input ufuncs and nout > 1 on a DataFrame
+        #  take the first branch above
+        frame_values = np.asarray(self)
+        result = getattr(ufunc, method)(frame_values, **kwargs)
         # e.g. np.negative (only one reached), with "where" and "out" in kwargs
 
     result = reconstruct(result)

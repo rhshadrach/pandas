@@ -470,6 +470,13 @@ class TestNumpyReductions:
         else:
             assert isinstance(result, (np.generic, pd.Timestamp))
 
+    def test_reduce_frame_categorical_python_scalars(self, using_python_scalars):
+        # GH#64266 CategoricalDtype.kind is "O", but the reduced array is int64
+        df = pd.DataFrame({"a": pd.Categorical([1, 2])})
+        result = np.fmax.reduce(df, axis=None)
+        assert result == 2
+        assert type(result) is (int if using_python_scalars else np.int64)
+
     @pytest.mark.parametrize("box", [pd.Series, pd.Index, pd.DataFrame])
     def test_reduce_object_dtype_preserves_numpy_scalars(self, box):
         # GH#64266
