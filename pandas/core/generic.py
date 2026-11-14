@@ -8529,7 +8529,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         dtype: float64
 
         >>> s.asof(20)
-        np.float64(2.0)
+        2.0
 
         For a sequence `where`, a Series is returned. The first value is
         NaN, because the first element of `where` is before the first
@@ -8544,7 +8544,7 @@ class NDFrame(PandasObject, indexing.IndexingMixin):
         NaN, even though NaN is at the index location for ``30``.
 
         >>> s.asof(30)
-        np.float64(2.0)
+        2.0
 
         Take all columns into consideration
 

@@ -990,11 +990,16 @@ class IndexOpsMixin(OpsMixin):
         [1, 2, 3]
         """
         values = self._values
-        if using_python_scalars() and (
-            isinstance(values.dtype, SparseDtype)
-            or values.dtype.type in (np.longdouble, np.clongdouble)
-        ):
-            return list(self)
+        if using_python_scalars():
+            dtype = values.dtype
+            if dtype.type is np.longdouble:
+                return values.astype(np.float64).tolist()
+            if dtype.type is np.clongdouble:
+                return values.astype(np.complex128).tolist()
+            if isinstance(dtype, SparseDtype):
+                if dtype.kind in "mM":
+                    return list(self)
+                return values.to_dense().tolist()
         return values.tolist()
 
     to_list = tolist
@@ -1039,12 +1044,12 @@ class IndexOpsMixin(OpsMixin):
                     return map(maybe_unbox_numpy_scalar, values)
             return iter(values)
         else:
-            if using_python_scalars() and values.dtype.type in (
-                np.longdouble,
-                np.clongdouble,
-            ):
+            if using_python_scalars():
                 # ndarray.item returns NumPy scalars for these dtypes
-                return map(maybe_unbox_numpy_scalar, values)
+                if values.dtype.type is np.longdouble:
+                    values = values.astype(np.float64)
+                elif values.dtype.type is np.clongdouble:
+                    values = values.astype(np.complex128)
             return map(values.item, range(values.size))
 
     @cache_readonly
