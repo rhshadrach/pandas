@@ -18,6 +18,7 @@ import numpy as np
 from pandas._libs import lib
 from pandas._libs.ops_dispatch import maybe_dispatch_ufunc_to_dunder_op
 
+from pandas.core.dtypes.cast import maybe_unbox_numpy_scalar
 from pandas.core.dtypes.generic import ABCNDFrame
 
 from pandas.core import roperator
@@ -383,8 +384,13 @@ def array_ufunc(self, ufunc: np.ufunc, method: str, *inputs: Any, **kwargs: Any)
 
     def _reconstruct(result):
         if lib.is_scalar(result) or not hasattr(result, "ndim"):
-            # e.g. a gufunc with signature "(n)->()" reducing object-dtype
-            #  data to an arbitrary Python object
+            # e.g. a reduction not in REDUCTION_ALIASES, or a gufunc with
+            #  signature "(n)->()" reducing object-dtype data to an arbitrary
+            #  Python object
+            if self.ndim == 1:
+                return maybe_unbox_numpy_scalar(result, object_with_dtype=self)
+            if not any(dtype.kind == "O" for dtype in self.dtypes):
+                return maybe_unbox_numpy_scalar(result)
             return result
 
         if result.ndim != self.ndim:
