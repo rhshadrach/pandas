@@ -375,7 +375,7 @@ def array_ufunc(self, ufunc: np.ufunc, method: str, *inputs: Any, **kwargs: Any)
     else:
         reconstruct_kwargs = {}
 
-    # the ndarray a DataFrame was converted to, when the ufunc ran on one
+    # the ndarray a DataFrame was converted to, if needed
     frame_values: np.ndarray | None = None
 
     def reconstruct(result):
