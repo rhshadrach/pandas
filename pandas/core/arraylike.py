@@ -15,6 +15,8 @@ from typing import (
 
 import numpy as np
 
+from pandas._config import using_python_scalars
+
 from pandas._libs import lib
 from pandas._libs.ops_dispatch import maybe_dispatch_ufunc_to_dunder_op
 
@@ -389,7 +391,11 @@ def array_ufunc(self, ufunc: np.ufunc, method: str, *inputs: Any, **kwargs: Any)
             #  Python object
             if self.ndim == 1:
                 return maybe_unbox_numpy_scalar(result, object_with_dtype=self)
-            if not any(dtype.kind == "O" for dtype in self.dtypes):
+            if (
+                isinstance(result, np.generic)
+                and using_python_scalars()
+                and not any(blk.dtype.kind == "O" for blk in self._mgr.blocks)
+            ):
                 return maybe_unbox_numpy_scalar(result)
             return result
 
